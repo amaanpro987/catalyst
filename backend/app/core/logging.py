@@ -1,10 +1,12 @@
 import logging
 import sys
+from app.core.config import settings
+
 
 def get_logger(name: str) -> logging.Logger:
     """Create and return a configured logger"""
     logger = logging.getLogger(name)
-    
+
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter(
@@ -12,8 +14,9 @@ def get_logger(name: str) -> logging.Logger:
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    
+        logger.setLevel(logging.DEBUG if settings.debug else logging.INFO)
+
     return logger
+
 
 logger = get_logger(__name__)

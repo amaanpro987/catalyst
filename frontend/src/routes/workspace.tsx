@@ -35,12 +35,6 @@ import { cn } from "../lib/utils";
 
 export const Route = createFileRoute("/workspace")({
   component: Workspace,
-  head: () => ({
-    meta: [
-      { title: "Workspace — CATALYST AI" },
-      { name: "description", content: "AI research workspace for catalyst discovery: generative design, prediction, and closed-loop experimental feedback." },
-    ],
-  }),
 });
 
 const navItems = [

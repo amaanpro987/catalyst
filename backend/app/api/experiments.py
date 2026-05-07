@@ -115,19 +115,18 @@ def flag_experimental_outliers(
 
 @router.post("/trigger-retraining")
 def trigger_model_retraining(
-    new_experiments: List[Dict[str, Any]],
-    trigger_reason: str = "new_data",
+    request: RetrainingRequest,
     db: Session = Depends(get_db)
 ):
     """
     Trigger model retraining and persist version info.
     """
-    logger.info(f"Triggering model retraining ({trigger_reason})")
+    logger.info(f"Triggering model retraining ({request.trigger_reason})")
     
     try:
         job = feedback_layer.trigger_model_retraining(
-            new_experiments=new_experiments,
-            trigger_reason=trigger_reason
+            new_experiments=request.new_experiments,
+            trigger_reason=request.trigger_reason
         )
         
         # Persist model version info
@@ -136,8 +135,8 @@ def trigger_model_retraining(
             version=job.get("version", "v" + str(uuid.uuid4())[:8]),
             model_type="GNN",
             status="active",
-            trigger_reason=trigger_reason,
-            training_samples=len(new_experiments),
+            trigger_reason=request.trigger_reason,
+            training_samples=len(request.new_experiments),
             training_started_at=datetime.now()
         )
         db.add(db_version)

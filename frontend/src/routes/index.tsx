@@ -11,18 +11,6 @@ import { CtaFooter } from "@/components/CtaFooter";
 
 export const Route = createFileRoute("/")({
   component: Index,
-  head: () => ({
-    meta: [
-      { title: "CATALYST AI — Molecular discovery for catalysis & synthetic biology" },
-      {
-        name: "description",
-        content:
-          "End-to-end AI discovery platform closing the loop between generative models, prediction, and the wet lab — for CO₂→methanol, ethanol→jet fuel, and biomass valorization.",
-      },
-      { property: "og:title", content: "CATALYST AI — Molecular Discovery Platform" },
-      { property: "og:description", content: "Closed-loop AI for chemical catalysis and synthetic biology, built with GPS Renewables." },
-    ],
-  }),
 });
 
 function Index() {
