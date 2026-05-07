@@ -1,6 +1,7 @@
 """API Routes - Catalysts endpoints"""
 
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -15,12 +16,16 @@ knowledge_layer = KnowledgeLayer()
 generative_layer = GenerativeLayer()
 
 
+class RetrieveRequest(BaseModel):
+    reaction_id: str
+    reactants: List[str]
+    products: List[str]
+    limit: int = Field(default=23)
+
+
 @router.post("/retrieve")
 def retrieve_known_catalysts(
-    reaction_id: str,
-    reactants: List[str],
-    products: List[str],
-    limit: int = 23,
+    request: RetrieveRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -34,17 +39,17 @@ def retrieve_known_catalysts(
     
     Returns up to 23 known catalysts ranked by relevance.
     """
-    logger.info(f"Retrieving known catalysts for {reactants} → {products}")
+    logger.info(f"Retrieving known catalysts for {request.reactants} → {request.products}")
     
     try:
         retrieved = knowledge_layer.retrieve_catalysts_for_reaction(
-            reactants=reactants,
-            products=products,
-            limit=limit
+            reactants=request.reactants,
+            products=request.products,
+            limit=request.limit
         )
         
         return {
-            "reaction_id": reaction_id,
+            "reaction_id": request.reaction_id,
             "count": len(retrieved),
             "catalysts": [
                 {

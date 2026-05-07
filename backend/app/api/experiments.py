@@ -1,6 +1,7 @@
 """API Routes - Experiments and feedback endpoints"""
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -13,14 +14,29 @@ router = APIRouter(prefix="/api/experiments", tags=["experiments"])
 feedback_layer = FeedbackLearningLayer()
 
 
+class LogResultsRequest(BaseModel):
+    reaction_id: str
+    catalyst_id: str
+    measured_properties: Dict[str, float]
+    predicted_properties: Dict[str, float]
+    researcher_name: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ExportRequest(BaseModel):
+    reaction_id: str
+    catalyst_ids: List[str]
+    export_format: str = "json"
+
+
+class RetrainingRequest(BaseModel):
+    new_experiments: List[Dict[str, Any]]
+    trigger_reason: str = "new_data"
+
+
 @router.post("/log-results")
 def log_experimental_results(
-    reaction_id: str,
-    catalyst_id: str,
-    measured_properties: Dict[str, float],
-    predicted_properties: Dict[str, float],
-    researcher_name: str = None,
-    notes: str = None,
+    request: LogResultsRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -31,43 +47,17 @@ def log_experimental_results(
     2. Calculate deviations and identify anomalies
     3. Generate hypotheses about model weaknesses
     4. Flag for model retraining if significant discrepancies found
-    
-    Input:
-    ```json
-    {
-      "reaction_id": "reaction_001",
-      "catalyst_id": "cat_001",
-      "measured_properties": {
-        "activity": 45.2,
-        "selectivity": 92.1,
-        "stability": 88.5
-      },
-      "predicted_properties": {
-        "activity": 50.0,
-        "selectivity": 85.0,
-        "stability": 90.0
-      },
-      "researcher_name": "Alice Johnson",
-      "notes": "Good catalyst performance, excellent selectivity"
-    }
-    ```
-    
-    Output:
-    - Deviation analysis
-    - Status (normal, verified_outperformer, anomaly)
-    - System-generated hypothesis
-    - Retraining recommendation
     """
-    logger.info(f"Logging experimental results for catalyst {catalyst_id}")
+    logger.info(f"Logging experimental results for catalyst {request.catalyst_id}")
     
     try:
         experiment = feedback_layer.log_experiment(
-            reaction_id=reaction_id,
-            catalyst_id=catalyst_id,
-            measured_properties=measured_properties,
-            predicted_properties=predicted_properties,
-            researcher_name=researcher_name,
-            notes=notes
+            reaction_id=request.reaction_id,
+            catalyst_id=request.catalyst_id,
+            measured_properties=request.measured_properties,
+            predicted_properties=request.predicted_properties,
+            researcher_name=request.researcher_name,
+            notes=request.notes
         )
         
         return {
