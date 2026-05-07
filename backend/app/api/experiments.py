@@ -1,11 +1,14 @@
 """API Routes - Experiments and feedback endpoints"""
 
+import uuid
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import ExperimentCreate, ExperimentResponse, DiscrepancyAnalysisSchema
+from app.models.models import Experiment, ModelVersion
 from app.layers.feedback_layer import FeedbackLearningLayer
 from app.core.logging import logger
 
@@ -40,18 +43,12 @@ def log_experimental_results(
     db: Session = Depends(get_db)
 ):
     """
-    Log experimental results and trigger analysis.
-    
-    This initiates the feedback loop:
-    1. Compare measured vs predicted values
-    2. Calculate deviations and identify anomalies
-    3. Generate hypotheses about model weaknesses
-    4. Flag for model retraining if significant discrepancies found
+    Log experimental results and trigger analysis, then persist to DB.
     """
     logger.info(f"Logging experimental results for catalyst {request.catalyst_id}")
     
     try:
-        experiment = feedback_layer.log_experiment(
+        experiment_data = feedback_layer.log_experiment(
             reaction_id=request.reaction_id,
             catalyst_id=request.catalyst_id,
             measured_properties=request.measured_properties,
@@ -60,16 +57,41 @@ def log_experimental_results(
             notes=request.notes
         )
         
+        # Persist to database
+        db_experiment = Experiment(
+            id=str(uuid.uuid4()),
+            reaction_id=request.reaction_id,
+            catalyst_id=request.catalyst_id,
+            measured_activity=request.measured_properties.get("activity"),
+            measured_selectivity=request.measured_properties.get("selectivity"),
+            measured_stability=request.measured_properties.get("stability"),
+            predicted_activity=request.predicted_properties.get("activity"),
+            predicted_selectivity=request.predicted_properties.get("selectivity"),
+            predicted_stability=request.predicted_properties.get("stability"),
+            activity_deviation=experiment_data.get("activity_deviation"),
+            selectivity_deviation=experiment_data.get("selectivity_deviation"),
+            stability_deviation=experiment_data.get("stability_deviation"),
+            status=experiment_data.get("status", "normal"),
+            hypothesis=experiment_data.get("hypothesis"),
+            notes=request.notes,
+            researcher_name=request.researcher_name,
+            tested_at=datetime.now()
+        )
+        db.add(db_experiment)
+        db.commit()
+        db.refresh(db_experiment)
+        
         return {
             "success": True,
-            "experiment": experiment,
+            "experiment": db_experiment,
             "recommendation": {
-                "trigger_retraining": experiment["status"] in ["anomaly", "verified_outperformer"],
-                "reason": "Significant deviation detected" if experiment["status"] == "anomaly" else "Strong outperformance",
+                "trigger_retraining": db_experiment.status in ["anomaly", "verified_outperformer"],
+                "reason": "Significant deviation detected" if db_experiment.status == "anomaly" else "Strong outperformance",
             },
         }
     except Exception as e:
         logger.error(f"Error logging experimental results: {str(e)}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -80,17 +102,6 @@ def flag_experimental_outliers(
 ):
     """
     Identify and flag experimental outliers for human review.
-    
-    Outliers include:
-    - Anomalies: Results significantly worse than predicted
-    - Verified outperformers: Results significantly better than predicted
-    - Systematic deviations: Multiple properties deviate in same direction
-    
-    Each flagged experiment includes:
-    - Experiment ID and catalyst info
-    - Deviation analysis
-    - System-generated hypothesis
-    - SME review requirement flag
     """
     logger.info(f"Flagging outliers from {len(experiments)} experiments")
     
@@ -109,19 +120,7 @@ def trigger_model_retraining(
     db: Session = Depends(get_db)
 ):
     """
-    Trigger model retraining with quality safeguards.
-    
-    Safeguards:
-    - Minimum 5 quality data points required
-    - Anomalies excluded unless explicitly verified by SME
-    - Version management with rollback capability
-    - A/B testing mode for validation
-    
-    Triggers:
-    - "new_data": Regular retraining with new experiments
-    - "drift_detected": Automatic retraining when model performance degrades
-    - "scheduled": Periodic retraining
-    - "manual": User-initiated retraining
+    Trigger model retraining and persist version info.
     """
     logger.info(f"Triggering model retraining ({trigger_reason})")
     
@@ -131,22 +130,38 @@ def trigger_model_retraining(
             trigger_reason=trigger_reason
         )
         
+        # Persist model version info
+        db_version = ModelVersion(
+            id=str(uuid.uuid4()),
+            version=job.get("version", "v" + str(uuid.uuid4())[:8]),
+            model_type="GNN",
+            status="active",
+            trigger_reason=trigger_reason,
+            training_samples=len(new_experiments),
+            training_started_at=datetime.now()
+        )
+        db.add(db_version)
+        db.commit()
+        db.refresh(db_version)
+        
         return {
             "success": True,
             "retraining_job": job,
-            "next_steps": "Monitor retraining progress at /api/experiments/retraining-status/{job_id}",
+            "model_version": db_version,
+            "next_steps": f"Monitor retraining progress at /api/experiments/retraining-status/{db_version.id}",
         }
     except Exception as e:
         logger.error(f"Error triggering retraining: {str(e)}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/retraining-history")
 def get_retraining_history(db: Session = Depends(get_db)):
-    """Get complete history of model retraining events"""
+    """Get complete history of model retraining events from DB"""
     logger.info("Retrieving retraining history")
     
-    history = feedback_layer.get_retraining_history()
+    history = db.query(ModelVersion).order_by(ModelVersion.created_at.desc()).all()
     return {
         "total_retraining_events": len(history),
         "history": history,
@@ -156,36 +171,22 @@ def get_retraining_history(db: Session = Depends(get_db)):
 
 @router.post("/export")
 def export_candidates_for_testing(
-    reaction_id: str,
-    catalyst_ids: List[str],
-    export_format: str = "json",
+    request: ExportRequest,
     db: Session = Depends(get_db)
 ):
     """
     Export top candidates for experimental synthesis and testing.
-    
-    Supported formats:
-    - JSON: Machine-readable, preserves all metadata
-    - CSV: Spreadsheet-compatible for lab records
-    - PDB/CIF/XYZ: Molecular coordinates for simulation/synthesis
-    - SMILES: Chemical structure notation
-    
-    Exports include:
-    - Full catalyst structure data
-    - Predicted properties with uncertainty
-    - Reaction conditions
-    - Synthesis recommendations
     """
-    logger.info(f"Exporting {len(catalyst_ids)} candidates in {export_format} format")
+    logger.info(f"Exporting {len(request.catalyst_ids)} candidates in {request.export_format} format")
     
     try:
         export_data = {
-            "reaction_id": reaction_id,
-            "num_catalysts": len(catalyst_ids),
-            "export_format": export_format,
-            "catalyst_ids": catalyst_ids,
-            "export_timestamp": "2026-05-05T00:00:00Z",
-            "download_link": f"/api/experiments/download-export/{reaction_id}",
+            "reaction_id": request.reaction_id,
+            "num_catalysts": len(request.catalyst_ids),
+            "export_format": request.export_format,
+            "catalyst_ids": request.catalyst_ids,
+            "export_timestamp": datetime.now().isoformat(),
+            "download_link": f"/api/experiments/download-export/{request.reaction_id}",
         }
         
         return {
@@ -202,16 +203,27 @@ def get_experiment_summary(
     reaction_id: str = None,
     db: Session = Depends(get_db)
 ):
-    """Get summary of all experiments and feedback loop status"""
+    """Get summary of all experiments and feedback loop status from DB"""
     logger.info(f"Retrieving experiment summary")
     
-    return {
-        "total_experiments": 5,
-        "experiments_by_status": {
-            "normal": 2,
-            "verified_outperformer": 2,
-            "anomaly": 1,
-        },
-        "model_retrainings": len(feedback_layer.get_retraining_history()),
-        "last_update": "2026-05-05T00:00:00Z",
+    query = db.query(Experiment)
+    if reaction_id:
+        query = query.filter(Experiment.reaction_id == reaction_id)
+        
+    total_experiments = query.count()
+    
+    experiments_by_status = {
+        "normal": query.filter(Experiment.status == "normal").count(),
+        "verified_outperformer": query.filter(Experiment.status == "verified_outperformer").count(),
+        "anomaly": query.filter(Experiment.status == "anomaly").count(),
     }
+    
+    retrainings_count = db.query(ModelVersion).count()
+    
+    return {
+        "total_experiments": total_experiments,
+        "experiments_by_status": experiments_by_status,
+        "model_retrainings": retrainings_count,
+        "last_update": datetime.now().isoformat(),
+    }
+

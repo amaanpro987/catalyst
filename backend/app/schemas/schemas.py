@@ -1,7 +1,7 @@
 """Pydantic schemas for request/response validation"""
 
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 # ==================== Reaction Schemas ====================
@@ -18,6 +18,7 @@ class ReactionCreate(BaseModel):
 
 
 class ReactionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     """Schema for reaction response"""
     id: str
     name: str
@@ -43,6 +44,7 @@ class CatalystCreate(BaseModel):
 
 
 class CatalystResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     """Schema for catalyst response"""
     id: str
     reaction_id: str

@@ -99,36 +99,85 @@ class GenerativeLayer:
         
         return variant
     
-    def _apply_doping(self, base_comp: str, index: int) -> tuple:
-        """Apply doping modification"""
-        dopants = ["N", "P", "S", "B", "C"]
+    def _apply_doping(self, base_comp_str: str, index: int) -> tuple:
+        """Apply doping modification (0.5-5% addition)"""
+        dopants = ["B", "N", "P", "S", "Se", "Cl", "K", "Cs"]
         dopant = dopants[index % len(dopants)]
-        new_comp = f"{base_comp}+{dopant}"
-        description = f"Doped with {dopant} (non-metal dopant for enhanced electronic properties)"
+        
+        # Simple string manipulation for mock
+        if "+" in base_comp_str:
+            new_comp = f"{base_comp_str}{dopant}0.01"
+        else:
+            new_comp = f"{base_comp_str}+{dopant}0.01"
+            
+        description = f"Trace doping with {dopant} to modulate electronic structure and adsorption energies."
         return new_comp, description
     
-    def _apply_substitution(self, base_comp: str, index: int) -> tuple:
-        """Apply substitution modification"""
-        substitutions = ["Ni→Pd", "Cu→Ag", "Zn→Cd", "Al→Ga", "Cr→Mo"]
-        sub = substitutions[index % len(substitutions)]
-        new_comp = f"{base_comp} ({sub})"
-        description = f"Substituted {sub} for enhanced catalytic properties"
+    def _apply_substitution(self, base_comp_str: str, index: int) -> tuple:
+        """Apply isoelectronic or periodic substitution"""
+        # Periodic group substitutions
+        subs = {
+            "Cu": ["Ag", "Au"],
+            "Ni": ["Pd", "Pt"],
+            "Zn": ["Cd", "Mg"],
+            "Al": ["Ga", "In"],
+            "Ti": ["Zr", "Hf"],
+            "Fe": ["Ru", "Os"],
+            "Co": ["Rh", "Ir"],
+        }
+        
+        # Find an element in base_comp to substitute
+        base_comp = parse_chemical_formula(base_comp_str)
+        found_el = None
+        for el in base_comp:
+            if el in subs:
+                found_el = el
+                break
+        
+        if not found_el:
+            found_el = list(base_comp.keys())[0]
+            new_el = "Mo" # Fallback
+        else:
+            new_el = subs[found_el][index % len(subs[found_el])]
+            
+        new_comp = base_comp_str.replace(found_el, new_el)
+        description = f"Isoelectronic substitution of {found_el} with {new_el} to optimize d-band center and binding strength."
         return new_comp, description
     
-    def _apply_composition_shift(self, base_comp: str, index: int) -> tuple:
-        """Apply composition ratio adjustment"""
-        shifts = ["High-Cu", "High-Zn", "High-Al", "Defect-rich", "Over-stoichiometric"]
-        shift = shifts[index % len(shifts)]
-        new_comp = f"{base_comp} ({shift})"
-        description = f"Adjusted to {shift} composition for improved reactivity"
+    def _apply_composition_shift(self, base_comp_str: str, index: int) -> tuple:
+        """Apply composition ratio adjustment (stoichiometry tuning)"""
+        base_comp = parse_chemical_formula(base_comp_str)
+        if not base_comp:
+            return base_comp_str, "Original composition maintained"
+            
+        elements = list(base_comp.keys())
+        target_el = elements[index % len(elements)]
+        
+        # Simulate ratio shift
+        new_comp_parts = []
+        for el, val in base_comp.items():
+            if el == target_el:
+                new_val = val * (1.1 + (index % 3) * 0.1) # Increase by 10-30%
+            else:
+                new_val = val
+            new_comp_parts.append(f"{el}{round(new_val, 2)}")
+            
+        new_comp = "".join(new_comp_parts)
+        description = f"Stoichiometric optimization of {target_el} content to maximize active site density."
         return new_comp, description
     
-    def _apply_support_change(self, base_comp: str, index: int) -> tuple:
-        """Apply support material change"""
-        supports = ["TiO2", "SiO2", "Al2O3", "C", "ZrO2"]
-        support = supports[index % len(supports)]
-        new_comp = f"{base_comp}/{support}"
-        description = f"Supported on {support} for enhanced stability and surface area"
+    def _apply_support_change(self, base_comp_str: str, index: int) -> tuple:
+        """Apply support material change with surface area considerations"""
+        supports = [
+            ("SBA-15", "mesoporous silica with high surface area"),
+            ("ZSM-5", "zeolite with specific pore geometry"),
+            ("MgO", "basic support for specific acidity control"),
+            ("CeO2", "reducible support for oxygen storage"),
+            ("CNT", "conductive carbon nanotubes for electron transfer")
+        ]
+        support, reason = supports[index % len(supports)]
+        new_comp = f"{base_comp_str}/{support}"
+        description = f"Hybrid structure supported on {support} ({reason})."
         return new_comp, description
     
     def _predict_property_changes(

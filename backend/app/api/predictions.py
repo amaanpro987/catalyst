@@ -1,10 +1,13 @@
 """API Routes - Predictions endpoints"""
 
-from typing import List, Dict, Any
+import uuid
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from app.db.database import get_db
 from app.schemas.schemas import PredictionRankingResponse
+from app.models.models import Prediction
 from app.layers.prediction_layer import PredictionLayer
 from app.core.logging import logger
 
@@ -13,43 +16,64 @@ router = APIRouter(prefix="/api/predictions", tags=["predictions"])
 prediction_layer = PredictionLayer()
 
 
+class RankRequest(BaseModel):
+    catalysts: List[Dict[str, Any]]
+    reaction_conditions: Dict[str, Any]
+    reaction_id: str
+    weights: Optional[Dict[str, float]] = None
+
+
+class PredictSingleRequest(BaseModel):
+    catalyst: Dict[str, Any]
+    reaction_conditions: Dict[str, Any]
+    reaction_id: str
+
+
 @router.post("/rank")
 def rank_catalysts(
-    catalysts: List[Dict[str, Any]],
-    reaction_conditions: Dict[str, float],
-    weights: Dict[str, float] = None,
+    request: RankRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Predict properties for multiple catalysts and rank them.
-    
-    Input:
-    - catalysts: List of catalyst objects (known or generated)
-    - reaction_conditions: Temperature (K), pressure (atm), solvent
-    - weights: Optional custom weights for activity, selectivity, stability
-    
-    Output:
-    - Ranked list with predicted properties
-    - Combined scores and rankings
-    - Uncertainty estimates
-    
-    Default weights: equal (0.33 each)
+    Predict properties for multiple catalysts and rank them, then persist results.
     """
-    logger.info(f"Ranking {len(catalysts)} catalysts")
+    logger.info(f"Ranking {len(request.catalysts)} catalysts for reaction {request.reaction_id}")
     
     try:
-        if not reaction_conditions:
+        if not request.reaction_conditions:
             reaction_conditions = {
                 "temperature": 298.15,
                 "pressure": 1.0,
                 "solvent": "water"
             }
+        else:
+            reaction_conditions = request.reaction_conditions
         
         # Predict properties for all catalysts
-        predictions = prediction_layer.batch_predict(catalysts, reaction_conditions)
+        predictions = prediction_layer.batch_predict(request.catalysts, reaction_conditions)
         
         # Rank catalysts
-        ranked = prediction_layer.rank_catalysts(predictions, weights)
+        ranked = prediction_layer.rank_catalysts(predictions, request.weights)
+        
+        saved_predictions = []
+        for r in ranked:
+            db_prediction = Prediction(
+                id=str(uuid.uuid4()),
+                reaction_id=request.reaction_id,
+                catalyst_id=r["catalyst_id"],
+                activity=r["activity"],
+                selectivity=r["selectivity"],
+                stability=r["stability"],
+                combined_score=r["combined_score"],
+                rank=r["rank"],
+                uncertainty=r["uncertainty"],
+                model_version=prediction_layer.model_version,
+                reaction_conditions=reaction_conditions
+            )
+            db.add(db_prediction)
+            saved_predictions.append(db_prediction)
+            
+        db.commit()
         
         return {
             "reaction_conditions": reaction_conditions,
@@ -63,29 +87,45 @@ def rank_catalysts(
         }
     except Exception as e:
         logger.error(f"Error ranking catalysts: {str(e)}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/predict-single")
 def predict_single_catalyst(
-    catalyst: Dict[str, Any],
-    reaction_conditions: Dict[str, float],
+    request: PredictSingleRequest,
     db: Session = Depends(get_db)
 ):
-    """Predict properties for a single catalyst"""
-    logger.info(f"Predicting properties for {catalyst.get('name', 'unknown')}")
+    """Predict properties for a single catalyst and persist"""
+    logger.info(f"Predicting properties for {request.catalyst.get('name', 'unknown')}")
     
     try:
-        prediction = prediction_layer.predict_properties(catalyst, reaction_conditions)
+        prediction = prediction_layer.predict_properties(request.catalyst, request.reaction_conditions)
+        
+        db_prediction = Prediction(
+            id=str(uuid.uuid4()),
+            reaction_id=request.reaction_id,
+            catalyst_id=request.catalyst["id"],
+            activity=prediction["activity"],
+            selectivity=prediction["selectivity"],
+            stability=prediction["stability"],
+            uncertainty=prediction.get("uncertainty", 0.1),
+            model_version=prediction_layer.model_version,
+            reaction_conditions=request.reaction_conditions
+        )
+        db.add(db_prediction)
+        db.commit()
+        db.refresh(db_prediction)
         
         return {
-            "catalyst_id": catalyst["id"],
-            "catalyst_name": catalyst["name"],
+            "catalyst_id": request.catalyst["id"],
+            "catalyst_name": request.catalyst["name"],
             "prediction": prediction,
             "model_version": prediction_layer.model_version,
         }
     except Exception as e:
         logger.error(f"Error predicting properties: {str(e)}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -100,3 +140,4 @@ def get_prediction_model_info(db: Session = Depends(get_db)):
         "last_updated": "2026-05-01",
         "status": "production",
     }
+

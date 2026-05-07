@@ -1,6 +1,7 @@
 """API Routes - Visualization endpoints"""
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -13,25 +14,33 @@ router = APIRouter(prefix="/api/visualization", tags=["visualization"])
 visualization_layer = VisualizationLayer()
 
 
+class StructureRequest(BaseModel):
+    catalyst: Dict[str, Any]
+    prediction: Optional[Dict[str, Any]] = None
+
+class PredictionsListRequest(BaseModel):
+    predictions: List[Dict[str, Any]]
+
+class EnergyDiagramRequest(BaseModel):
+    catalyst_id: str
+
+class DashboardSummaryRequest(BaseModel):
+    reaction_id: str
+    predictions: List[Dict[str, Any]]
+
+
 @router.post("/catalyst-structure")
 def format_catalyst_for_viewer(
-    catalyst: Dict[str, Any],
-    prediction: Dict[str, Any] = None,
+    request: StructureRequest,
     db: Session = Depends(get_db)
 ):
     """
     Format catalyst data for interactive 3D/2D molecular viewer.
-    
-    Returns:
-    - 3D atomic coordinates (for 3Dmol.js or Plotly)
-    - 2D SMILES representation
-    - Active site identification
-    - Interactive visualization hints
     """
-    logger.info(f"Formatting catalyst {catalyst.get('name')} for visualization")
+    logger.info(f"Formatting catalyst {request.catalyst.get('name')} for visualization")
     
     try:
-        formatted = visualization_layer.format_catalyst_for_viewer(catalyst, prediction)
+        formatted = visualization_layer.format_catalyst_for_viewer(request.catalyst, request.prediction)
         return formatted
     except Exception as e:
         logger.error(f"Error formatting catalyst: {str(e)}")
@@ -40,22 +49,16 @@ def format_catalyst_for_viewer(
 
 @router.post("/performance-plot")
 def create_performance_plot(
-    predictions: List[Dict[str, Any]],
+    request: PredictionsListRequest,
     db: Session = Depends(get_db)
 ):
     """
     Create Plotly-compatible data for performance comparison plot.
-    
-    Visualization: Scatter plot with:
-    - X-axis: Activity
-    - Y-axis: Selectivity
-    - Color: Stability
-    - Size: Uncertainty (larger = higher uncertainty)
     """
-    logger.info(f"Creating performance plot for {len(predictions)} catalysts")
+    logger.info(f"Creating performance plot for {len(request.predictions)} catalysts")
     
     try:
-        plot_data = visualization_layer.create_performance_plot_data(predictions)
+        plot_data = visualization_layer.create_performance_plot_data(request.predictions)
         return {
             "type": "plotly",
             "plot": plot_data,
@@ -67,23 +70,16 @@ def create_performance_plot(
 
 @router.post("/ranking-table")
 def create_ranking_table(
-    predictions: List[Dict[str, Any]],
+    request: PredictionsListRequest,
     db: Session = Depends(get_db)
 ):
     """
     Create tabular data for ranking display.
-    
-    Returns structured table data with:
-    - Ranking position
-    - Catalyst name and composition
-    - Predicted metrics (activity, selectivity, stability)
-    - Combined score
-    - Uncertainty estimates
     """
-    logger.info(f"Creating ranking table for {len(predictions)} catalysts")
+    logger.info(f"Creating ranking table for {len(request.predictions)} catalysts")
     
     try:
-        table_data = visualization_layer.create_ranking_table_data(predictions)
+        table_data = visualization_layer.create_ranking_table_data(request.predictions)
         return table_data
     except Exception as e:
         logger.error(f"Error creating table: {str(e)}")
@@ -92,22 +88,16 @@ def create_ranking_table(
 
 @router.post("/energy-diagram")
 def get_reaction_energy_diagram(
-    catalyst_id: str,
+    request: EnergyDiagramRequest,
     db: Session = Depends(get_db)
 ):
     """
     Get reaction energy profile diagram for a catalyst.
-    
-    Shows:
-    - Reactant and product energies
-    - Reaction intermediates
-    - Activation barriers
-    - Exothermic/endothermic nature
     """
-    logger.info(f"Creating energy diagram for catalyst {catalyst_id}")
+    logger.info(f"Creating energy diagram for catalyst {request.catalyst_id}")
     
     try:
-        diagram = visualization_layer.create_reaction_energy_diagram(catalyst_id)
+        diagram = visualization_layer.create_reaction_energy_diagram(request.catalyst_id)
         return diagram
     except Exception as e:
         logger.error(f"Error creating energy diagram: {str(e)}")
@@ -116,23 +106,16 @@ def get_reaction_energy_diagram(
 
 @router.post("/dashboard-summary")
 def get_dashboard_summary(
-    reaction_id: str,
-    predictions: List[Dict[str, Any]],
+    request: DashboardSummaryRequest,
     db: Session = Depends(get_db)
 ):
     """
     Get summary statistics for the main dashboard.
-    
-    Returns:
-    - Total catalysts and split by type
-    - Average metrics
-    - Top 5 recommendations
-    - Key statistics
     """
-    logger.info(f"Creating dashboard summary for reaction {reaction_id}")
+    logger.info(f"Creating dashboard summary for reaction {request.reaction_id}")
     
     try:
-        summary = visualization_layer.get_dashboard_summary(reaction_id, predictions)
+        summary = visualization_layer.get_dashboard_summary(request.reaction_id, request.predictions)
         return summary
     except Exception as e:
         logger.error(f"Error creating dashboard summary: {str(e)}")

@@ -1,11 +1,37 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Atom, FlaskConical, Database, Sparkles, BarChart3, RefreshCw,
   Send, Beaker, Activity, AlertTriangle, CheckCircle2, Layers,
   ChevronRight, Search, Settings, Home, BookOpen, Cpu, Zap, Bot, User,
-  FileText, ArrowRight, Clock, Target, PlayCircle, ShieldCheck
+  FileText, ArrowRight, Clock, Target, PlayCircle, ShieldCheck, Loader2,
+  ScatterChart, Info
 } from "lucide-react";
+import { 
+  createReaction, 
+  listReactions, 
+  retrieveCatalysts, 
+  rankCatalysts,
+  fetchExperimentSummary,
+  fetchRetrainingHistory
+} from "../lib/api";
+import {
+  ActivitySelectivityScatter,
+  StabilityComparisonChart,
+  ConfidenceScoreVisualization,
+  CandidateRankingHeatmap,
+} from "../components/ScientificCharts";
+import { 
+  StatSkeleton, 
+  TableRowSkeleton, 
+  ChartSkeleton, 
+  EmptyState, 
+  ErrorState, 
+  PageTransition 
+} from "../components/UXStates";
+import { Menu, X } from "lucide-react";
+import { cn } from "../lib/utils";
 
 export const Route = createFileRoute("/workspace")({
   component: Workspace,
@@ -22,32 +48,13 @@ const navItems = [
   { icon: Sparkles, label: "Discovery" },
   { icon: Atom, label: "Candidates" },
   { icon: BarChart3, label: "Predictions" },
+  { icon: ScatterChart, label: "Visualizations" },
   { icon: FlaskConical, label: "Experiments" },
   { icon: RefreshCw, label: "Feedback Loop" },
   { icon: Database, label: "Knowledge Base" },
   { icon: BookOpen, label: "Protocols" },
 ];
 
-const projects = [
-  { name: "CO₂ → Methanol", status: "active", tag: "Cu/ZnO" },
-  { name: "Ethanol → Jet Fuel", status: "running", tag: "Zeolite" },
-  { name: "Lignin Valorization", status: "draft", tag: "Enzyme" },
-];
-
-const candidates = [
-  { id: "CAT-0241", formula: "Cu₃Zn₁Al₀.₅Oₓ", score: 0.94, sel: 87, conv: 62, ea: 38, novel: true },
-  { id: "CAT-0238", formula: "Cu₂ZnGa₀.₃Oₓ", score: 0.91, sel: 82, conv: 71, ea: 41, novel: true },
-  { id: "CAT-0235", formula: "Pd₀.₅Cu₂.₅Oₓ", score: 0.88, sel: 79, conv: 58, ea: 35, novel: false },
-  { id: "CAT-0231", formula: "Cu₃Zn₁Zr₀.₂Oₓ", score: 0.85, sel: 75, conv: 66, ea: 44, novel: true },
-  { id: "CAT-0220", formula: "Pt₁Ni₃Oₓ", score: 0.82, sel: 72, conv: 80, ea: 48, novel: true },
-  { id: "CAT-0215", formula: "Ru₀.₁Cu₂.₉Oₓ", score: 0.79, sel: 68, conv: 55, ea: 52, novel: false },
-];
-
-const chatMessages = [
-  { role: "assistant" as const, text: "Initialized CO₂→methanol discovery cycle. Retrieved 1,284 reference structures from Materials Project + OC22." },
-  { role: "user" as const, text: "Prioritize candidates with selectivity > 80% and Cu-based supports." },
-  { role: "assistant" as const, text: "Filtered 47 candidates. Top 4 shown in workspace. CAT-0241 shows 12% higher selectivity than literature baseline (Cu/ZnO/Al₂O₃, Behrens 2012)." },
-];
 
 function Stat({ label, value, suffix }: { label: string; value: number | string; suffix?: string }) {
   return (
@@ -120,27 +127,45 @@ function Sparkline() {
   );
 }
 
-function OverviewView() {
+function OverviewView({ stats, projects, isLoading }: { stats: any, projects: any[], isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="h-12 w-64 bg-secondary/40 rounded animate-pulse" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatSkeleton />
+          <StatSkeleton />
+          <StatSkeleton />
+          <StatSkeleton />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="h-64 bg-card/40 rounded-xl animate-pulse" />
+          <div className="h-64 bg-card/40 rounded-xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-end">
+    <PageTransition className="p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h1 className="text-2xl font-display">Welcome back, Dr. Sharma</h1>
           <p className="text-muted-foreground text-sm mt-1">Here's the status of your catalyst discovery pipeline.</p>
         </div>
-        <button className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-mono text-xs uppercase flex items-center gap-2 hover:opacity-90">
+        <button className="w-full sm:w-auto bg-primary text-primary-foreground px-4 py-2 rounded-md font-mono text-xs uppercase flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
           <Zap className="h-4 w-4" /> New Project
         </button>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Active Projects", val: "3", icon: Target, col: "text-primary" },
-          { label: "Candidates Generated", val: "1,492", icon: Sparkles, col: "text-accent" },
-          { label: "Experiments Logged", val: "18", icon: FlaskConical, col: "text-amber-500" },
-          { label: "Compute Hours", val: "342h", icon: Cpu, col: "text-blue-500" },
+          { label: "Active Projects", val: projects?.length ?? 0, icon: Target, col: "text-primary" },
+          { label: "Experiments Logged", val: stats?.total_experiments ?? 0, icon: FlaskConical, col: "text-amber-500" },
+          { label: "Model Retrainings", val: stats?.model_retrainings ?? 0, icon: RefreshCw, col: "text-accent" },
+          { label: "Anomalies Detected", val: stats?.experiments_by_status?.anomaly ?? 0, icon: AlertTriangle, col: "text-red-500" },
         ].map(s => (
-          <div key={s.label} className="bg-card/60 border border-border p-5 rounded-xl">
+          <div key={s.label} className="bg-card/60 border border-border p-5 rounded-xl hover:border-primary/30 transition-colors">
             <div className={`mb-3 ${s.col}`}><s.icon className="h-6 w-6" /></div>
             <div className="font-display text-3xl mb-1">{s.val}</div>
             <div className="font-mono text-[10px] uppercase text-muted-foreground">{s.label}</div>
@@ -148,14 +173,14 @@ function OverviewView() {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-card/60 border border-border p-5 rounded-xl">
           <h2 className="font-mono text-xs uppercase tracking-widest text-primary mb-4">Recent Activity</h2>
           <div className="space-y-4">
             {[
-              { text: "Model retraining completed for CO2 reduction.", time: "2h ago", icon: RefreshCw },
-              { text: "New synthesis protocol generated for CAT-0241.", time: "5h ago", icon: FileText },
-              { text: "GC-MS results uploaded by Lab-A.", time: "1d ago", icon: CheckCircle2 },
+              { text: "Model retraining history updated from DB.", time: "Live", icon: RefreshCw },
+              { text: "Real-time discovery pipeline active.", time: "Now", icon: Sparkles },
+              { text: "Experimental feedback loop initialized.", time: "Live", icon: Layers },
             ].map((a, i) => (
               <div key={i} className="flex gap-3 text-sm">
                 <a.icon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
@@ -170,201 +195,338 @@ function OverviewView() {
         <div className="bg-card/60 border border-border p-5 rounded-xl">
           <h2 className="font-mono text-xs uppercase tracking-widest text-primary mb-4">Active Projects Status</h2>
           <div className="space-y-4">
-            {projects.map((p) => (
-              <div key={p.name} className="flex items-center justify-between p-3 rounded bg-background/40 border border-border/50">
-                <div className="flex items-center gap-3">
-                  <div className={`h-2 w-2 rounded-full ${p.status === 'active' ? 'bg-primary' : 'bg-muted-foreground'}`} />
-                  <span className="font-medium">{p.name}</span>
-                </div>
-                <span className="font-mono text-[10px] text-muted-foreground">{p.tag}</span>
+            {projects?.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground text-sm">No active projects.</p>
               </div>
-            ))}
+            ) : (
+              projects?.slice(0, 3).map((p: any) => (
+                <div key={p.id} className="flex items-center justify-between p-3 rounded bg-background/40 border border-border/50 hover:border-primary/20 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-2 w-2 rounded-full bg-primary`} />
+                    <span className="font-medium truncate max-w-[150px]">{p.name}</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-muted-foreground">{p.solvent}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
-    </div>
+    </PageTransition>
   );
 }
 
-function CandidatesView() {
+
+function CandidatesView({ candidates, isLoading, error, onRetry }: { candidates: any[], isLoading: boolean, error?: any, onRetry?: () => void }) {
+  if (error) return <ErrorState error={error} onRetry={onRetry} />;
+
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <PageTransition className="p-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-display">Candidate Pool</h1>
           <p className="text-muted-foreground text-sm mt-1">Explore all generated and retrieved candidates for the current project.</p>
         </div>
-        <div className="flex gap-2">
-          <button className="px-3 py-1.5 border border-border bg-card rounded text-sm flex items-center gap-2 hover:bg-secondary">
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button className="flex-1 sm:flex-none px-3 py-1.5 border border-border bg-card rounded text-sm flex items-center justify-center gap-2 hover:bg-secondary transition-colors">
             <Search className="h-4 w-4" /> Filter
           </button>
-          <button className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm hover:opacity-90">
+          <button className="flex-1 sm:flex-none px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm hover:opacity-90 transition-opacity">
             Export CSV
           </button>
         </div>
       </div>
 
-      <div className="border border-border rounded-xl bg-card/60 overflow-hidden">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-background/80 font-mono text-[10px] uppercase text-muted-foreground border-b border-border">
-            <tr>
-              <th className="px-4 py-3">ID</th>
-              <th className="px-4 py-3">Formula</th>
-              <th className="px-4 py-3">Score</th>
-              <th className="px-4 py-3">Selectivity</th>
-              <th className="px-4 py-3">Conversion</th>
-              <th className="px-4 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
-            {candidates.map((c) => (
-              <tr key={c.id} className="hover:bg-secondary/40 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs">{c.id}</td>
-                <td className="px-4 py-3 font-medium">{c.formula}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-16 h-1.5 rounded bg-secondary overflow-hidden">
-                      <div className="h-full bg-primary" style={{ width: `${c.score * 100}%` }} />
-                    </div>
-                    <span className="font-mono text-xs">{c.score.toFixed(2)}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 font-mono text-xs">{c.sel}%</td>
-                <td className="px-4 py-3 font-mono text-xs">{c.conv}%</td>
-                <td className="px-4 py-3">
-                  {c.novel ? 
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-accent/20 text-accent border border-accent/40">NOVEL</span> :
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-muted text-muted-foreground border border-border">LIT</span>
-                  }
-                </td>
+      <div className="border border-border rounded-xl bg-card/60 overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-background/80 font-mono text-[10px] uppercase text-muted-foreground border-b border-border">
+              <tr>
+                <th className="px-4 py-3">ID</th>
+                <th className="px-4 py-3">Composition</th>
+                <th className="px-4 py-3">Score</th>
+                <th className="px-4 py-3">Selectivity</th>
+                <th className="px-4 py-3">Activity</th>
+                <th className="px-4 py-3">Source</th>
+                <th className="px-4 py-3">AI Verdict</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {isLoading ? (
+                Array(6).fill(0).map((_, i) => (
+                  <TableRowSkeleton key={i} cols={7} />
+                ))
+              ) : candidates.length === 0 ? (
+                <tr>
+                  <td colSpan={7}>
+                    <EmptyState 
+                      icon={Sparkles}
+                      title="No candidates surfaced"
+                      description="Initialize a discovery cycle or adjust your search parameters to generate potential catalyst candidates."
+                    />
+                  </td>
+                </tr>
+              ) : candidates.map((c) => (
+                <tr key={c.catalyst_id} className="hover:bg-secondary/40 transition-colors group">
+                  <td className="px-4 py-3 font-mono text-xs">{c.catalyst_id.slice(0, 8)}</td>
+                  <td className="px-4 py-3 font-medium group-hover:text-primary transition-colors">{c.composition}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-1.5 rounded bg-secondary overflow-hidden">
+                        <div className="h-full bg-primary" style={{ width: `${c.combined_score * 100}%` }} />
+                      </div>
+                      <span className="font-mono text-xs">{c.combined_score.toFixed(2)}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">{Math.round(c.selectivity)}%</td>
+                  <td className="px-4 py-3 font-mono text-xs">{Math.round(c.activity)}%</td>
+                  <td className="px-4 py-3">
+                    {c.source === "generated" ? 
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-accent/20 text-accent border border-accent/40">NOVEL</span> :
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-muted text-muted-foreground border border-border">KNOWN</span>
+                    }
+                  </td>
+                  <td className="px-4 py-3 text-[11px] italic text-primary/80 truncate max-w-[150px]">{c.explanation}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </PageTransition>
   );
 }
 
-function PredictionsView() {
+function PredictionsView({ rankingData, isLoading }: { rankingData: any[], isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="h-10 w-48 bg-secondary/40 rounded animate-pulse" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <ChartSkeleton />
+          <ChartSkeleton />
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <ChartSkeleton />
+          <ChartSkeleton />
+        </div>
+      </div>
+    );
+  }
+
+  const avgUncertainty = rankingData.length
+    ? rankingData.reduce((acc, c) => acc + c.uncertainty, 0) / rankingData.length
+    : 0;
+    
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <PageTransition className="p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-display">Prediction Models</h1>
-          <p className="text-muted-foreground text-sm mt-1">Review GNN and MLIP prediction confidences and uncertainties.</p>
+          <p className="text-muted-foreground text-sm mt-1">GNN &amp; MLIP prediction confidences, uncertainties, and candidate rankings.</p>
+        </div>
+        <div className="flex gap-3 font-mono text-[10px]">
+          <div className="rounded border border-border/60 bg-card/60 px-3 py-2 text-center">
+            <div className="text-foreground text-sm font-display">{rankingData.length}</div>
+            <div className="text-muted-foreground">Candidates</div>
+          </div>
+          <div className="rounded border border-border/60 bg-card/60 px-3 py-2 text-center">
+            <div className="text-foreground text-sm font-display">±{(avgUncertainty * 100).toFixed(1)}%</div>
+            <div className="text-muted-foreground">Avg Uncertainty</div>
+          </div>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-card/60 border border-border p-5 rounded-xl h-80 flex flex-col items-center justify-center text-muted-foreground">
-           <BarChart3 className="h-10 w-10 mb-4 opacity-50" />
-           <p>Selectivity vs Conversion Distribution Chart</p>
-           <p className="text-xs mt-2">(Recharts placeholder)</p>
-        </div>
-        <div className="bg-card/60 border border-border p-5 rounded-xl h-80 flex flex-col items-center justify-center text-muted-foreground">
-           <Activity className="h-10 w-10 mb-4 opacity-50" />
-           <p>Uncertainty Quantification</p>
-           <p className="text-xs mt-2">(Recharts placeholder)</p>
-        </div>
-      </div>
-    </div>
+
+      {rankingData.length === 0 ? (
+        <EmptyState 
+          icon={BarChart3}
+          title="No prediction data"
+          description="Candidates must be generated before the AI engine can run performance predictions and uncertainty quantification."
+        />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <ActivitySelectivityScatter candidates={rankingData} />
+            <StabilityComparisonChart candidates={rankingData} />
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <ConfidenceScoreVisualization candidates={rankingData} />
+            <CandidateRankingHeatmap candidates={rankingData} />
+          </div>
+        </>
+      )}
+    </PageTransition>
   );
 }
 
-function ExperimentsView() {
+function VisualizationsView({ rankingData, isLoading }: { rankingData: any[], isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="h-10 w-48 bg-secondary/40 rounded animate-pulse" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <ChartSkeleton />
+          <ChartSkeleton />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6">
+    <PageTransition className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-display">Scientific Visualizations</h1>
+          <p className="text-muted-foreground text-sm mt-1">Interactive multi-dimensional analysis of catalyst candidates.</p>
+        </div>
+        <span className="hidden sm:inline font-mono text-[10px] text-muted-foreground border border-border/50 px-2 py-1 rounded">
+          {rankingData.length} candidates · Recharts
+        </span>
+      </div>
+
+      {rankingData.length === 0 ? (
+        <EmptyState 
+          icon={Activity}
+          title="Visualization data unavailable"
+          description="Complete a discovery cycle to populate these interactive visualizations with real-time candidate data."
+        />
+      ) : (
+        <div className="space-y-6">
+          {/* Row 1 */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <ActivitySelectivityScatter candidates={rankingData} />
+            <StabilityComparisonChart candidates={rankingData} />
+          </div>
+          {/* Row 2 */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <ConfidenceScoreVisualization candidates={rankingData} />
+            <CandidateRankingHeatmap candidates={rankingData} />
+          </div>
+        </div>
+      )}
+    </PageTransition>
+  );
+}
+
+function ExperimentsView({ stats, isLoading }: { stats: any, isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="h-10 w-48 bg-secondary/40 rounded animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="h-96 bg-card/40 rounded-xl animate-pulse" />
+          <div className="h-96 bg-card/40 rounded-xl animate-pulse" />
+          <div className="h-96 bg-card/40 rounded-xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <PageTransition className="p-6">
       <h1 className="text-2xl font-display mb-1">Experiment Logs</h1>
       <p className="text-muted-foreground text-sm mb-6">Track physical synthesis and testing of selected candidates.</p>
       
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {['Queued', 'In Progress', 'Completed'].map((col, idx) => (
-          <div key={col} className="bg-card/40 border border-border rounded-xl p-4 min-h-[500px]">
+          <div key={col} className="bg-card/40 border border-border rounded-xl p-4 min-h-[400px] sm:min-h-[500px]">
             <h3 className="font-mono text-xs uppercase tracking-widest text-primary mb-4 flex justify-between items-center">
-              {col} <span className="bg-secondary px-2 py-0.5 rounded text-foreground">{idx === 0 ? 2 : idx === 1 ? 1 : 4}</span>
+              {col} <span className="bg-secondary px-2 py-0.5 rounded text-foreground">
+                {idx === 0 ? 0 : idx === 1 ? 0 : stats?.total_experiments ?? 0}
+              </span>
             </h3>
-            {idx === 1 && (
-              <div className="bg-background border border-primary/40 rounded-lg p-3 shadow-sm mb-3">
+            {idx === 2 && stats?.total_experiments > 0 && (
+              <div className="bg-background border border-border rounded-lg p-3 shadow-sm mb-3 animate-fade-in-up">
                 <div className="flex justify-between items-start mb-2">
-                  <span className="font-mono text-xs text-primary">CAT-0241</span>
-                  <span className="text-[10px] text-muted-foreground">Lab-A</span>
-                </div>
-                <div className="text-sm font-medium mb-3">Co-precipitation synthesis</div>
-                <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-primary h-full w-[60%] animate-pulse" />
-                </div>
-              </div>
-            )}
-            {idx === 2 && (
-              <div className="bg-background border border-border rounded-lg p-3 shadow-sm mb-3">
-                <div className="flex justify-between items-start mb-2">
-                  <span className="font-mono text-xs text-muted-foreground">CAT-0215</span>
+                  <span className="font-mono text-xs text-muted-foreground">EXP-LAST</span>
                   <ShieldCheck className="h-3.5 w-3.5 text-accent" />
                 </div>
-                <div className="text-sm font-medium mb-1">GC-MS Analysis</div>
-                <div className="text-xs text-muted-foreground">Results logged. Sel: 67%</div>
+                <div className="text-sm font-medium mb-1">Recent Experiment</div>
+                <div className="text-xs text-muted-foreground">Anomalies: {stats.experiments_by_status.anomaly}</div>
               </div>
+            )}
+            {idx !== 2 && (
+               <div className="flex flex-col items-center justify-center h-48 opacity-20 italic text-xs">
+                 No items in {col.toLowerCase()}
+               </div>
             )}
           </div>
         ))}
       </div>
-    </div>
+    </PageTransition>
   );
 }
 
-function FeedbackLoopView() {
-  return (
+function FeedbackLoopView({ history, stats, isLoading }: { history: any[], stats: any, isLoading: boolean }) {
+  if (isLoading) return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
+      <div className="h-32 w-full bg-secondary/40 rounded animate-pulse" />
+      <div className="h-64 w-full bg-card/40 rounded animate-pulse" />
+    </div>
+  );
+
+  return (
+    <PageTransition className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="text-center mb-8">
-        <RefreshCw className="h-12 w-12 text-primary mx-auto mb-4" />
+        <RefreshCw className="h-12 w-12 text-primary mx-auto mb-4 animate-spin-slow" />
         <h1 className="text-3xl font-display">Closed-Loop Feedback</h1>
         <p className="text-muted-foreground mt-2">Aligning physical experiment outcomes with AI predictions to fine-tune models.</p>
       </div>
 
-      <div className="bg-[oklch(0.82_0.15_75)]/5 border border-[oklch(0.82_0.15_75)]/40 p-6 rounded-xl">
-        <div className="flex items-center gap-3 mb-4 text-[oklch(0.82_0.15_75)]">
-          <AlertTriangle className="h-5 w-5" />
-          <h2 className="text-lg font-medium">Active Discrepancy Detected</h2>
+      {stats?.experiments_by_status?.anomaly > 0 && (
+        <div className="bg-[oklch(0.82_0.15_75)]/5 border border-[oklch(0.82_0.15_75)]/40 p-6 rounded-xl animate-fade-in-up">
+          <div className="flex items-center gap-3 mb-4 text-[oklch(0.82_0.15_75)]">
+            <AlertTriangle className="h-5 w-5 animate-pulse" />
+            <h2 className="text-lg font-medium">Discrepancy Detected</h2>
+          </div>
+          <p className="text-sm text-foreground/90 mb-6 leading-relaxed">
+            System detected {stats.experiments_by_status.anomaly} anomaly(s) in recent experiments. 
+            Automated retraining is recommended to align model with observed experimental data.
+          </p>
+          <button className="bg-[oklch(0.82_0.15_75)] text-white px-4 py-2 rounded font-mono text-xs uppercase flex items-center gap-2 hover:opacity-90 transition-opacity">
+            <Zap className="h-4 w-4" /> Initiate Retraining Cycle
+          </button>
         </div>
-        <p className="text-sm text-foreground/90 mb-6">
-          Recent experiments on Cu-based candidates show a systematic underestimation of selectivity by 8-12%. 
-          The model predicted 72% average selectivity, while lab results yield 81%.
-        </p>
-        <button className="bg-[oklch(0.82_0.15_75)] text-white px-4 py-2 rounded font-mono text-xs uppercase flex items-center gap-2 hover:opacity-90">
-          <Zap className="h-4 w-4" /> Initiate Retraining Cycle
-        </button>
-      </div>
+      )}
 
-      <div className="bg-card/60 border border-border p-6 rounded-xl">
+      <div className="bg-card/60 border border-border p-6 rounded-xl shadow-sm">
         <h3 className="font-mono text-xs uppercase tracking-widest text-primary mb-4">Retraining History</h3>
-        <table className="w-full text-sm text-left">
-          <thead>
-            <tr className="text-muted-foreground border-b border-border">
-              <th className="pb-2">Date</th>
-              <th className="pb-2">Model Version</th>
-              <th className="pb-2">Trigger</th>
-              <th className="pb-2">Improvement</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
-            <tr>
-              <td className="py-3 text-muted-foreground">2026-04-12</td>
-              <td className="py-3 font-mono">v1.4.2</td>
-              <td className="py-3">Conv% overestimation in Zeolites</td>
-              <td className="py-3 text-primary">+4.2% Accuracy</td>
-            </tr>
-            <tr>
-              <td className="py-3 text-muted-foreground">2026-03-28</td>
-              <td className="py-3 font-mono">v1.4.1</td>
-              <td className="py-3">Stability metrics adjustment</td>
-              <td className="py-3 text-primary">+2.1% Accuracy</td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="text-muted-foreground border-b border-border font-mono text-[10px] uppercase">
+                <th className="pb-3 px-2">Date</th>
+                <th className="pb-3 px-2">Model Version</th>
+                <th className="pb-3 px-2">Trigger</th>
+                <th className="pb-3 px-2">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {history.length === 0 ? (
+                 <tr><td colSpan={4} className="py-12 text-center text-muted-foreground italic">No retraining history yet.</td></tr>
+              ) : history.map((h) => (
+                <tr key={h.id} className="hover:bg-secondary/20 transition-colors">
+                  <td className="py-4 px-2 text-muted-foreground">{new Date(h.created_at).toLocaleDateString()}</td>
+                  <td className="py-4 px-2 font-mono text-xs">{h.version}</td>
+                  <td className="py-4 px-2">{h.trigger_reason}</td>
+                  <td className="py-4 px-2">
+                    <span className="inline-flex items-center gap-1.5 text-primary">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary animate-blink" />
+                      {h.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </PageTransition>
   );
 }
+
+
 
 function KnowledgeBaseView() {
   return (
@@ -439,59 +601,139 @@ function ProtocolsView() {
 }
 
 export function Workspace() {
-  const [reaction, setReaction] = useState("CO2 + 3H2 -> CH3OH + H2O");
-  const [selected, setSelected] = useState(candidates[0]);
-  const [chat, setChat] = useState(chatMessages);
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("Overview");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [reactionInput, setReactionInput] = useState("CO2 + 3H2 -> CH3OH + H2O");
+  const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
+  const [chat, setChat] = useState<{ role: "assistant" | "user"; text: string }[]>([
+    { role: "assistant", text: "Ready to start discovery cycle. Enter your target reaction to begin." }
+  ]);
   const [input, setInput] = useState("");
-  const [activeTab, setActiveTab] = useState("Discovery");
+
+  // Queries
+  const { data: reactionsData, isLoading: loadingReactions, error: errorReactions } = useQuery({
+    queryKey: ["reactions"],
+    queryFn: () => listReactions(),
+  });
+
+  const activeReaction = reactionsData?.reactions?.[0];
+
+  const { data: catalystsData, isLoading: loadingCatalysts, error: errorCatalysts } = useQuery({
+    queryKey: ["catalysts", activeReaction?.id],
+    queryFn: () => retrieveCatalysts({
+      reaction_id: activeReaction!.id,
+      reactants: activeReaction!.reactants,
+      products: activeReaction!.products,
+    }),
+    enabled: !!activeReaction,
+  });
+
+  const { data: rankingData, isLoading: loadingRanking, error: errorRanking } = useQuery({
+    queryKey: ["ranking", activeReaction?.id, catalystsData?.catalysts],
+    queryFn: () => rankCatalysts({
+      catalysts: catalystsData!.catalysts,
+      reaction_conditions: {
+        temperature: activeReaction!.temperature,
+        pressure: activeReaction!.pressure,
+        solvent: activeReaction!.solvent,
+      },
+      reaction_id: activeReaction!.id
+    }),
+    enabled: !!activeReaction && !!catalystsData?.catalysts,
+  });
+
+  const { data: experimentSummary, isLoading: loadingExperiments } = useQuery({
+    queryKey: ["experimentSummary", activeReaction?.id],
+    queryFn: () => fetchExperimentSummary(activeReaction?.id),
+    enabled: !!activeReaction,
+  });
+
+  const { data: retrainingHistory, isLoading: loadingHistory } = useQuery({
+    queryKey: ["retrainingHistory"],
+    queryFn: () => fetchRetrainingHistory(),
+  });
+
+  // Mutations
+  const discoveryMutation = useMutation({
+    mutationFn: async (inputStr: string) => {
+      // Very basic parsing for demo
+      const [reactantsPart, productsPart] = inputStr.split("->");
+      const reactants = reactantsPart.split("+").map(s => s.trim());
+      const products = productsPart.split("+").map(s => s.trim());
+      
+      const reaction = await createReaction({
+        name: inputStr,
+        reactants,
+        products,
+        temperature: 250,
+        pressure: 50,
+        solvent: "water"
+      });
+      
+      return reaction;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reactions"] });
+      setChat(prev => [...prev, 
+        { role: "assistant", text: "New reaction created. Discovery pipeline initiated. Retrieving known catalysts and generating novel variants..." }
+      ]);
+    },
+  });
+
+  useEffect(() => {
+    if (rankingData && rankingData.length > 0 && !selectedCandidate) {
+      setSelectedCandidate(rankingData[0]);
+    }
+  }, [rankingData]);
 
   const send = () => {
     if (!input.trim()) return;
-    setChat([...chat, { role: "user", text: input }, {
-      role: "assistant",
-      text: "Analyzing… cross-referencing with feedback loop. Predicted ΔG = -41.2 kJ/mol. Suggesting variant with Ga doping for improved CO₂ activation.",
-    }]);
+    setChat([...chat, { role: "user", text: input }]);
     setInput("");
+    // Simulate AI response
+    setTimeout(() => {
+      setChat(prev => [...prev, {
+        role: "assistant",
+        text: "Analyzing current candidate pool... CAT-0241 shows consistent high selectivity in recent simulations.",
+      }]);
+    }, 1000);
   };
 
+
   const renderContent = () => {
+    const isMainLoading = loadingReactions || loadingCatalysts || loadingRanking;
+    
     switch (activeTab) {
-      case "Overview": return <OverviewView />;
+      case "Overview": return <OverviewView stats={experimentSummary} projects={reactionsData?.reactions ?? []} isLoading={loadingReactions || loadingExperiments} />;
       case "Discovery": return (
-        <>
+        <PageTransition>
           {/* Reaction input */}
           <div className="px-6 pt-6">
             <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-primary mb-2">
               <Beaker className="h-3.5 w-3.5" /> Reaction Input
             </div>
-            <div className="rounded-xl border border-border bg-card/60 p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="rounded-xl border border-border bg-card/60 p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center shadow-sm">
               <input
-                value={reaction}
-                onChange={(e) => setReaction(e.target.value)}
-                className="flex-1 bg-input border border-border rounded-md px-3 py-2.5 font-mono text-sm focus:outline-none focus:border-primary/60"
+                value={reactionInput}
+                onChange={(e) => setReactionInput(e.target.value)}
+                className="flex-1 bg-input border border-border rounded-md px-3 py-2.5 font-mono text-sm focus:outline-none focus:border-primary/60 transition-colors"
               />
               <div className="flex gap-2">
-                <select className="bg-input border border-border rounded-md px-2 py-2 text-sm">
+                <select className="bg-input border border-border rounded-md px-2 py-2 text-sm focus:border-primary/40 focus:outline-none">
                   <option>Heterogeneous</option>
                   <option>Homogeneous</option>
                   <option>Enzymatic</option>
                 </select>
-                <button className="px-4 py-2 rounded-md bg-primary text-primary-foreground font-mono text-xs uppercase tracking-widest hover:opacity-90 flex items-center gap-2">
-                  <Zap className="h-3.5 w-3.5" /> Generate
+                <button 
+                  onClick={() => discoveryMutation.mutate(reactionInput)}
+                  disabled={discoveryMutation.isPending}
+                  className="px-4 py-2 rounded-md bg-primary text-primary-foreground font-mono text-xs uppercase tracking-widest hover:opacity-90 flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
+                >
+                  {discoveryMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} 
+                  Generate
                 </button>
               </div>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-3">
-              {[
-                ["Constraint", "T < 250 °C"],
-                ["Constraint", "P < 50 bar"],
-                ["Goal", "Selectivity > 80%"],
-                ["Element", "Cu-based"],
-              ].map(([k, v]) => (
-                <span key={v} className="font-mono text-[10px] px-2 py-1 rounded border border-border bg-secondary/60">
-                  <span className="text-muted-foreground">{k}:</span> <span className="text-foreground">{v}</span>
-                </span>
-              ))}
             </div>
           </div>
 
@@ -499,77 +741,91 @@ export function Workspace() {
           <div className="px-6 pt-6">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-primary">
-                <Sparkles className="h-3.5 w-3.5" /> AI-Generated Candidates · 47 ranked
+                <Sparkles className="h-3.5 w-3.5" /> {loadingRanking ? "Ranking Candidates..." : `AI-Generated Candidates · ${rankingData?.length ?? 0} ranked`}
               </div>
-              <span className="font-mono text-[10px] text-muted-foreground">Sorted by composite score</span>
+              <span className="hidden sm:inline font-mono text-[10px] text-muted-foreground">Sorted by composite score</span>
             </div>
-            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
-              {candidates.slice(0,4).map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setSelected(c)}
-                  className={`text-left rounded-xl border p-4 transition-colors ${
-                    selected.id === c.id ? "border-primary/60 bg-primary/5" : "border-border bg-card/60 hover:border-primary/40"
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <span className="font-mono text-[10px] text-muted-foreground">{c.id}</span>
-                    {c.novel && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent/20 text-accent border border-accent/40">NOVEL</span>}
-                  </div>
-                  <div className="font-display text-lg mb-3">{c.formula}</div>
-                  <div className="grid grid-cols-3 gap-2 text-center mb-3">
-                    <Stat label="Sel%" value={c.sel} />
-                    <Stat label="Conv%" value={c.conv} />
-                    <Stat label="Eₐ" value={c.ea} suffix="kJ" />
-                  </div>
-                  <div className="flex items-center justify-between font-mono text-[10px]">
-                    <span className="text-muted-foreground">Score</span>
-                    <div className="flex-1 mx-2 h-1 rounded bg-secondary overflow-hidden">
-                      <div className="h-full bg-primary" style={{ width: `${c.score * 100}%` }} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {loadingRanking ? (
+                Array(4).fill(0).map((_, i) => (
+                  <div key={i} className="h-40 rounded-xl border border-border bg-card/60 animate-pulse" />
+                ))
+              ) : (
+                rankingData?.slice(0,4).map((c: any) => (
+                  <button
+                    key={c.catalyst_id}
+                    onClick={() => setSelectedCandidate(c)}
+                    className={`text-left rounded-xl border p-4 transition-all duration-300 ${
+                      selectedCandidate?.catalyst_id === c.catalyst_id ? "border-primary/60 bg-primary/5 shadow-inner" : "border-border bg-card/60 hover:border-primary/40 hover:bg-primary/5"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <span className="font-mono text-[10px] text-muted-foreground">{c.catalyst_id.slice(0, 8)}</span>
+                      {c.source === "generated" && <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-accent/20 text-accent border border-accent/40">NOVEL</span>}
                     </div>
-                    <span className="text-primary">{c.score.toFixed(2)}</span>
-                  </div>
-                </button>
-              ))}
+                    <div className="font-display text-lg mb-1 truncate">{c.composition}</div>
+                    <div className="font-mono text-[9px] text-primary/80 mb-3 truncate italic">{c.explanation}</div>
+                    <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                      <Stat label="Sel%" value={Math.round(c.selectivity)} />
+                      <Stat label="Act%" value={Math.round(c.activity)} />
+                      <Stat label="Stab" value={Math.round(c.stability)} />
+                    </div>
+                    <div className="flex items-center justify-between font-mono text-[10px]">
+                      <span className="text-muted-foreground">Score</span>
+                      <div className="flex-1 mx-2 h-1 rounded bg-secondary overflow-hidden">
+                        <div className="h-full bg-primary" style={{ width: `${c.combined_score * 100}%` }} />
+                      </div>
+                      <span className="text-primary">{c.combined_score.toFixed(2)}</span>
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
           </div>
 
+
           {/* 3D viewer + Predictions */}
-          <div className="px-6 pt-6 grid lg:grid-cols-5 gap-4">
+          <div className="px-6 pt-6 grid grid-cols-1 lg:grid-cols-5 gap-4">
             {/* 3D Visualization */}
-            <div className="lg:col-span-3 rounded-xl border border-border bg-card/60 p-5 relative overflow-hidden" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="lg:col-span-3 rounded-xl border border-border bg-card/60 p-5 relative overflow-hidden shadow-sm">
               <div className="absolute inset-0 grid-bg opacity-20" />
-              <div className="relative flex items-center justify-between mb-4">
-                <div>
-                  <div className="font-mono text-[10px] uppercase tracking-widest text-primary mb-1">3D Structure</div>
-                  <div className="font-display text-xl">{selected.formula}</div>
-                </div>
-                <div className="flex gap-1.5 font-mono text-[10px]">
-                  {["Ball+Stick", "Surface", "Orbital"].map((m, i) => (
-                    <button key={m} className={`px-2 py-1 rounded border ${i === 0 ? "border-primary/50 text-primary bg-primary/10" : "border-border text-muted-foreground"}`}>{m}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="relative h-72 flex items-center justify-center">
-                <Molecule3D />
-              </div>
-              <div className="relative grid grid-cols-4 gap-2 mt-2 font-mono text-[10px]">
-                {[
-                  ["Atoms", "47"],
-                  ["Bonds", "82"],
-                  ["Symmetry", "Pm-3m"],
-                  ["a (Å)", "4.21"],
-                ].map(([k, v]) => (
-                  <div key={k} className="rounded border border-border/60 bg-background/40 px-2 py-1.5">
-                    <div className="text-muted-foreground">{k}</div>
-                    <div className="text-foreground">{v}</div>
+              {!selectedCandidate ? (
+                <div className="h-64 flex items-center justify-center text-muted-foreground font-mono text-xs italic">Select a candidate to view structure</div>
+              ) : (
+                <div className="animate-fade-in-up">
+                  <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
+                    <div>
+                      <div className="font-mono text-[10px] uppercase tracking-widest text-primary mb-1">3D Structure</div>
+                      <div className="font-display text-xl">{selectedCandidate.composition}</div>
+                    </div>
+                    <div className="flex gap-1.5 font-mono text-[10px] overflow-x-auto w-full sm:w-auto">
+                      {["Ball+Stick", "Surface", "Orbital"].map((m, i) => (
+                        <button key={m} className={`px-2 py-1 rounded border whitespace-nowrap transition-colors ${i === 0 ? "border-primary/50 text-primary bg-primary/10" : "border-border text-muted-foreground hover:bg-secondary/40"}`}>{m}</button>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
+                  <div className="relative h-64 sm:h-72 flex items-center justify-center">
+                    <Molecule3D />
+                  </div>
+                  <div className="relative grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 font-mono text-[10px]">
+                    {[
+                      ["Atoms", "47"],
+                      ["Bonds", "82"],
+                      ["Symmetry", "Pm-3m"],
+                      ["a (Å)", "4.21"],
+                    ].map(([k, v]) => (
+                      <div key={k} className="rounded border border-border/60 bg-background/40 px-2 py-1.5 hover:border-primary/20 transition-colors">
+                        <div className="text-muted-foreground">{k}</div>
+                        <div className="text-foreground">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Prediction analytics */}
-            <div className="lg:col-span-2 rounded-xl border border-border bg-card/60 p-5" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="lg:col-span-2 rounded-xl border border-border bg-card/60 p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="font-mono text-[10px] uppercase tracking-widest text-primary flex items-center gap-2">
                   <BarChart3 className="h-3.5 w-3.5" /> Prediction Analytics
@@ -577,54 +833,77 @@ export function Workspace() {
                 <span className="font-mono text-[9px] text-muted-foreground">±2σ uncertainty</span>
               </div>
 
-              <div className="space-y-3">
-                {[
-                  { label: "Selectivity", val: selected.sel, unc: 4, col: "bg-primary" },
-                  { label: "CO₂ Conversion", val: selected.conv, unc: 6, col: "bg-accent" },
-                  { label: "Stability (h)", val: 720, unc: 80, max: 1000, col: "bg-[oklch(0.82_0.15_75)]" },
-                  { label: "Activation Energy", val: selected.ea, unc: 3, max: 80, col: "bg-[oklch(0.70_0.20_280)]", suffix: " kJ/mol" },
-                ].map((m) => (
-                  <div key={m.label}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-muted-foreground">{m.label}</span>
-                      <span className="font-mono text-foreground">{m.val}{m.suffix ?? "%"} <span className="text-muted-foreground">±{m.unc}</span></span>
+              {!selectedCandidate ? (
+                <div className="h-64 flex items-center justify-center text-muted-foreground font-mono text-xs italic">No candidate selected</div>
+              ) : (
+                <div className="space-y-3 animate-fade-in-up">
+                  {[
+                    { label: "Selectivity", val: Math.round(selectedCandidate.selectivity), unc: Math.round(selectedCandidate.uncertainty * 100), col: "bg-primary", max: 100 },
+                    { label: "Activity", val: Math.round(selectedCandidate.activity), unc: Math.round(selectedCandidate.uncertainty * 80), col: "bg-accent", max: 100 },
+                    { label: "Stability", val: Math.round(selectedCandidate.stability), unc: Math.round(selectedCandidate.uncertainty * 120), col: "bg-amber-warn", max: 100 },
+                    { label: "Combined Score", val: Math.round(selectedCandidate.combined_score * 100), unc: 5, col: "bg-violet-500", suffix: "", max: 100 },
+                  ].map((m) => (
+                    <div key={m.label}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-muted-foreground">{m.label}</span>
+                        <span className="font-mono text-foreground">{m.val}{m.suffix ?? "%"} <span className="text-muted-foreground">±{m.unc}</span></span>
+                      </div>
+                      <div className="relative h-2 bg-secondary/60 rounded overflow-hidden">
+                        <div className={`absolute inset-y-0 left-0 ${m.col} transition-all duration-700`} style={{ width: `${(m.val / m.max) * 100}%` }} />
+                        <div className="absolute inset-y-0 bg-foreground/20" style={{ left: `${((m.val - m.unc) / m.max) * 100}%`, width: `${((2 * m.unc) / m.max) * 100}%` }} />
+                      </div>
                     </div>
-                    <div className="relative h-2 bg-secondary/60 rounded overflow-hidden">
-                      <div className={`absolute inset-y-0 left-0 ${m.col}`} style={{ width: `${(m.val / (m.max ?? 100)) * 100}%` }} />
-                      <div className="absolute inset-y-0 bg-foreground/20" style={{ left: `${((m.val - m.unc) / (m.max ?? 100)) * 100}%`, width: `${((2 * m.unc) / (m.max ?? 100)) * 100}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
 
-              <div className="mt-5 pt-4 border-t border-border/60">
-                <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Cycle convergence</div>
-                <Sparkline />
-              </div>
+                  <div className="mt-4 p-3 rounded-lg bg-primary/5 border border-primary/20">
+                    <div className="font-mono text-[9px] uppercase tracking-widest text-primary mb-2 flex items-center gap-1.5"><Info className="h-3 w-3" /> AI Insights</div>
+                    <ul className="space-y-1.5">
+                      {selectedCandidate.insights?.map((insight: string, idx: number) => (
+                        <li key={idx} className="text-[11px] leading-relaxed flex gap-2">
+                          <span className="text-primary">•</span>
+                          <span>{insight}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {selectedCandidate.uncertainty_description && (
+                    <div className="flex items-center gap-2 mt-2 px-1">
+                      <AlertTriangle className="h-3 w-3 text-amber-warn" />
+                      <span className="text-[10px] text-muted-foreground italic">{selectedCandidate.uncertainty_description}</span>
+                    </div>
+                  )}
+                  <div className="mt-5 pt-4 border-t border-border/60">
+                    <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Cycle convergence</div>
+                    <Sparkline />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
+
           {/* Experiment log + Discrepancy */}
-          <div className="px-6 py-6 grid lg:grid-cols-2 gap-4">
+          <div className="px-6 py-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Experiment log */}
-            <div className="rounded-xl border border-border bg-card/60 p-5" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="rounded-xl border border-border bg-card/60 p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className="font-mono text-[10px] uppercase tracking-widest text-primary flex items-center gap-2">
-                  <FlaskConical className="h-3.5 w-3.5" /> Experiment Log · {selected.id}
+                <div className="font-mono text-[10px] uppercase tracking-widest text-primary flex items-center gap-2 truncate">
+                  <FlaskConical className="h-3.5 w-3.5" /> Exp Log · {selectedCandidate?.catalyst_id?.slice(0, 8) || "—"}
                 </div>
-                <button className="font-mono text-[10px] uppercase tracking-widest text-primary border border-primary/40 px-2.5 py-1 rounded hover:bg-primary/10">+ Entry</button>
+                <button className="font-mono text-[10px] uppercase tracking-widest text-primary border border-primary/40 px-2.5 py-1 rounded hover:bg-primary/10 transition-colors">+ Entry</button>
               </div>
-              <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                 {[
-                  ["Predicted Sel%", selected.sel, "Actual Sel%", 79],
-                  ["Predicted Conv%", selected.conv, "Actual Conv%", 54],
+                  ["Pred Sel%", selectedCandidate?.selectivity, "Act Sel%", 79],
+                  ["Pred Conv%", selectedCandidate?.activity, "Act Conv%", 54],
                 ].map(([pl, pv, al, av]) => (
-                  <div key={String(pl)} className="rounded-md border border-border/60 bg-background/40 p-3">
+                  <div key={String(pl)} className="rounded-md border border-border/60 bg-background/40 p-3 hover:border-primary/20 transition-colors">
                     <div className="flex justify-between font-mono text-[10px] text-muted-foreground">
                       <span>{pl}</span><span>{al}</span>
                     </div>
-                    <div className="flex justify-between items-baseline">
-                      <span className="font-display text-2xl text-primary">{pv}</span>
+                    <div className="flex justify-between items-baseline mt-1">
+                      <span className="font-display text-2xl text-primary">{pv?.toFixed(1) || "—"}</span>
                       <span className="font-display text-2xl text-foreground">{av}</span>
                     </div>
                   </div>
@@ -636,12 +915,12 @@ export function Workspace() {
                   { d: "2026-05-05", op: "Lab-A · Patel", note: "GC-MS run 01 · selectivity below pred. by 8%", ok: false },
                   { d: "2026-05-06", op: "Lab-A · Patel", note: "Repeat with reduced calcination T (350°C)", ok: true },
                 ].map((l) => (
-                  <div key={l.d + l.note} className="flex gap-3 text-sm py-1.5 border-b border-border/40 last:border-0">
+                  <div key={l.d + l.note} className="flex gap-3 text-sm py-2 border-b border-border/40 last:border-0 hover:bg-secondary/20 rounded px-2 -mx-2 transition-colors">
                     <span className="font-mono text-[10px] text-muted-foreground shrink-0 mt-1">{l.d}</span>
-                    {l.ok ? <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" /> : <AlertTriangle className="h-4 w-4 text-[oklch(0.82_0.15_75)] shrink-0 mt-0.5" />}
+                    {l.ok ? <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" /> : <AlertTriangle className="h-4 w-4 text-amber-warn shrink-0 mt-0.5 animate-pulse" />}
                     <div className="flex-1">
-                      <div>{l.note}</div>
-                      <div className="font-mono text-[10px] text-muted-foreground">{l.op}</div>
+                      <div className="leading-snug">{l.note}</div>
+                      <div className="font-mono text-[10px] text-muted-foreground mt-0.5">{l.op}</div>
                     </div>
                   </div>
                 ))}
@@ -649,12 +928,12 @@ export function Workspace() {
             </div>
 
             {/* Discrepancy analysis */}
-            <div className="rounded-xl border border-[oklch(0.82_0.15_75)]/40 bg-[oklch(0.82_0.15_75)]/5 p-5">
-              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[oklch(0.82_0.15_75)] mb-3">
+            <div className="rounded-xl border border-amber-warn/40 bg-amber-warn/5 p-5 shadow-sm">
+              <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-amber-warn mb-3">
                 <AlertTriangle className="h-3.5 w-3.5" /> AI Discrepancy Analysis
               </div>
-              <div className="font-display text-lg mb-3">
-                Predicted vs. observed selectivity diverges by <span className="text-[oklch(0.82_0.15_75)]">−8.4%</span>
+              <div className="font-display text-lg mb-3 leading-tight">
+                Predicted vs. observed selectivity diverges by <span className="text-amber-warn font-semibold">−8.4%</span>
               </div>
               <div className="space-y-2.5 text-sm text-muted-foreground">
                 {[
@@ -662,13 +941,13 @@ export function Workspace() {
                   { p: 0.41, h: "Calcination temperature drives Cu particle migration" },
                   { p: 0.23, h: "Trace Fe contamination in support" },
                 ].map((h) => (
-                  <div key={h.h} className="flex items-start gap-3 rounded-md border border-border/60 bg-background/40 p-2.5">
-                    <span className="font-mono text-[10px] text-primary mt-0.5">P={h.p.toFixed(2)}</span>
-                    <span className="text-foreground/90">{h.h}</span>
+                  <div key={h.h} className="flex items-start gap-3 rounded-md border border-border/60 bg-background/40 p-3 hover:border-amber-warn/20 transition-colors">
+                    <span className="font-mono text-[10px] text-primary mt-0.5 shrink-0">P={h.p.toFixed(2)}</span>
+                    <span className="text-foreground/90 leading-snug">{h.h}</span>
                   </div>
                 ))}
               </div>
-              <button onClick={() => setActiveTab('Feedback Loop')} className="mt-4 w-full font-mono text-[10px] uppercase tracking-widest border border-primary/40 text-primary py-2 rounded hover:bg-primary/10 flex items-center justify-center gap-2">
+              <button onClick={() => setActiveTab('Feedback Loop')} className="mt-4 w-full font-mono text-[10px] uppercase tracking-widest border border-primary/40 text-primary py-2.5 rounded hover:bg-primary/10 flex items-center justify-center gap-2 transition-all">
                 <RefreshCw className="h-3.5 w-3.5" /> Trigger retraining cycle
               </button>
             </div>
@@ -679,8 +958,8 @@ export function Workspace() {
             <div className="font-mono text-[10px] uppercase tracking-widest text-primary mb-3 flex items-center gap-2">
               <RefreshCw className="h-3.5 w-3.5" /> Closed-Loop Learning
             </div>
-            <div className="rounded-xl border border-border bg-card/60 p-5">
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+            <div className="rounded-xl border border-border bg-card/60 p-5 shadow-sm">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
                   { i: Database, l: "Retrieve", s: "1,284 refs" },
                   { i: Sparkles, l: "Generate", s: "47 candidates" },
@@ -691,12 +970,12 @@ export function Workspace() {
                 ].map((s, idx) => {
                   const Icon = s.i;
                   return (
-                    <div key={s.l} className={`relative rounded-lg border p-3 ${s.active ? "border-primary/60 bg-primary/10" : "border-border bg-background/40"}`}>
+                    <div key={s.l} className={`relative rounded-lg border p-3 transition-all ${s.active ? "border-primary/60 bg-primary/10 shadow-sm" : "border-border bg-background/40 hover:border-primary/20"}`}>
                       <div className="flex items-center justify-between mb-2">
                         <Icon className={`h-4 w-4 ${s.active ? "text-primary" : "text-muted-foreground"}`} />
                         <span className="font-mono text-[9px] text-muted-foreground">0{idx + 1}</span>
                       </div>
-                      <div className="text-sm">{s.l}</div>
+                      <div className="text-sm font-medium">{s.l}</div>
                       <div className="font-mono text-[10px] text-muted-foreground">{s.s}</div>
                     </div>
                   );
@@ -704,12 +983,13 @@ export function Workspace() {
               </div>
             </div>
           </div>
-        </>
+        </PageTransition>
       );
-      case "Candidates": return <CandidatesView />;
-      case "Predictions": return <PredictionsView />;
-      case "Experiments": return <ExperimentsView />;
-      case "Feedback Loop": return <FeedbackLoopView />;
+      case "Candidates": return <CandidatesView candidates={rankingData ?? []} isLoading={loadingRanking} error={errorRanking} onRetry={() => queryClient.invalidateQueries({ queryKey: ["ranking"] })} />;
+      case "Predictions": return <PredictionsView rankingData={rankingData ?? []} isLoading={loadingRanking} />;
+      case "Visualizations": return <VisualizationsView rankingData={rankingData ?? []} isLoading={loadingRanking} />;
+      case "Experiments": return <ExperimentsView stats={experimentSummary} isLoading={loadingExperiments} />;
+      case "Feedback Loop": return <FeedbackLoopView history={retrainingHistory?.history ?? []} stats={experimentSummary} isLoading={loadingHistory} />;
       case "Knowledge Base": return <KnowledgeBaseView />;
       case "Protocols": return <ProtocolsView />;
       default: return null;
@@ -718,19 +998,26 @@ export function Workspace() {
 
   return (
     <div className="h-screen w-full bg-background text-foreground flex overflow-hidden font-sans">
-      {/* LEFT SIDEBAR */}
-      <aside className="w-64 shrink-0 border-r border-border/60 bg-card/40 flex flex-col">
-        <div className="px-5 py-5 border-b border-border/60">
+      {/* LEFT SIDEBAR - Overlay on mobile */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 w-64 shrink-0 border-r border-border/60 bg-card/90 backdrop-blur-xl flex flex-col transition-transform duration-300 md:relative md:translate-x-0 md:bg-card/40",
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="px-5 py-5 border-b border-border/60 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
             <div className="relative h-7 w-7">
               <div className="absolute inset-0 rounded-full bg-primary/20 animate-pulse-glow" />
               <div className="absolute inset-1 rounded-full bg-primary glow-emerald" />
               <div className="absolute inset-[10px] rounded-full bg-background" />
             </div>
+
             <span className="font-display text-base font-semibold tracking-tight">
               CATALYST<span className="text-primary">.AI</span>
             </span>
           </Link>
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-muted-foreground">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <div className="px-3 py-3">
@@ -738,7 +1025,7 @@ export function Workspace() {
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <input
               placeholder="Search…"
-              className="w-full bg-input border border-border rounded-md pl-8 pr-2 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary/60"
+              className="w-full bg-input border border-border rounded-md pl-8 pr-2 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary/60 transition-colors"
             />
           </div>
         </div>
@@ -751,10 +1038,13 @@ export function Workspace() {
             return (
               <button
                 key={it.label}
-                onClick={() => setActiveTab(it.label)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                onClick={() => {
+                  setActiveTab(it.label);
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all ${
                   isActive
-                    ? "bg-primary/15 text-foreground border border-primary/30"
+                    ? "bg-primary/15 text-foreground border border-primary/30 shadow-sm"
                     : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground border border-transparent"
                 }`}
               >
@@ -765,67 +1055,74 @@ export function Workspace() {
           })}
 
           <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground px-3 py-2 mt-4">Active Projects</div>
-          {projects.map((p) => (
-            <button key={p.name} className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground">
+          {(reactionsData?.reactions ?? []).length === 0 && (
+            <div className="px-3 py-2 text-[10px] text-muted-foreground italic">No projects active</div>
+          )}
+          {(reactionsData?.reactions ?? []).map((p: any) => (
+            <button key={p.id} className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors group">
               <span className="flex items-center gap-2 truncate">
-                <span className={`h-1.5 w-1.5 rounded-full ${p.status === "active" ? "bg-primary animate-blink" : p.status === "running" ? "bg-accent" : "bg-muted-foreground"}`} />
-                <span className="truncate">{p.name}</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-blink" />
+                <span className="truncate group-hover:text-foreground">{p.name}</span>
               </span>
-              <span className="font-mono text-[9px] text-muted-foreground/70">{p.tag}</span>
+              <span className="font-mono text-[9px] text-muted-foreground/70">{p.solvent}</span>
             </button>
           ))}
         </nav>
 
         <div className="border-t border-border/60 p-3 flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground text-xs font-semibold">DR</div>
+          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-primary-foreground text-xs font-semibold shadow-sm">DR</div>
           <div className="flex-1 min-w-0">
             <div className="text-sm truncate">Dr. R. Sharma</div>
             <div className="font-mono text-[10px] text-muted-foreground truncate">GPS Renewables · Lead</div>
           </div>
-          <Settings className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-pointer" />
+          <Settings className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-pointer transition-colors" />
         </div>
       </aside>
 
+      {/* MOBILE OVERLAY */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm md:hidden" 
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* CENTRAL WORKSPACE */}
-      <section className="flex-1 flex flex-col overflow-hidden">
+      <section className="flex-1 flex flex-col overflow-hidden relative">
         {/* Top bar */}
-        <div className="border-b border-border/60 bg-background/80 backdrop-blur px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Workspace</span>
-            <ChevronRight className="h-3.5 w-3.5" />
-            <span className="text-foreground">{activeTab}</span>
+        <div className="border-b border-border/60 bg-background/80 backdrop-blur px-4 sm:px-6 py-3 flex items-center justify-between z-30">
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-foreground mr-1">
+              <Menu className="h-5 w-5" />
+            </button>
+            <span className="hidden sm:inline">Workspace</span>
+            <ChevronRight className="hidden sm:inline h-3.5 w-3.5" />
+            <span className="text-foreground font-medium">{activeTab}</span>
             {activeTab === "Discovery" && (
               <>
-                <ChevronRight className="h-3.5 w-3.5" />
-                <span className="text-foreground">CO₂ → Methanol</span>
-                <ChevronRight className="h-3.5 w-3.5" />
-                <span className="text-foreground">Cycle 14</span>
+                <ChevronRight className="hidden md:inline h-3.5 w-3.5" />
+                <span className="hidden md:inline text-foreground">CO₂ → Methanol</span>
               </>
             )}
           </div>
           <div className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-widest">
-            {activeTab === "Discovery" && (
-              <>
-                <span className="text-muted-foreground">Cycle</span>
-                <span className="text-primary">14 / Active</span>
-                <span className="text-muted-foreground">·</span>
-              </>
-            )}
-            <span className="flex items-center gap-1.5 text-primary">
+            <span className="hidden lg:flex items-center gap-1.5 text-primary">
               <span className="h-1.5 w-1.5 rounded-full bg-primary animate-blink" /> Models online
             </span>
+            <div className="h-4 w-px bg-border/60 hidden lg:block" />
+            <span className="text-muted-foreground">v3.4.1</span>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto bg-background/50">
           {renderContent()}
         </div>
       </section>
 
-      {/* RIGHT AI ASSISTANT */}
-      <aside className="w-96 shrink-0 border-l border-border/60 bg-card/40 flex flex-col">
+      {/* RIGHT AI ASSISTANT - Hidden on mobile/tablet */}
+      <aside className="hidden xl:flex w-80 2xl:w-96 shrink-0 border-l border-border/60 bg-card/40 flex-col">
         <div className="px-5 py-4 border-b border-border/60 flex items-center gap-3">
-          <div className="relative h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+          <div className="relative h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg">
             <Bot className="h-5 w-5 text-primary-foreground" />
             <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary border-2 border-card animate-blink" />
           </div>
@@ -841,7 +1138,7 @@ export function Workspace() {
             ["ΔAcc", "+3.1%"],
             ["Drift", "0.8σ"],
           ].map(([k, v]) => (
-            <div key={k} className="rounded border border-border/60 bg-background/40 px-2 py-1.5 text-center">
+            <div key={k} className="rounded border border-border/60 bg-background/40 px-2 py-1.5 text-center hover:border-primary/20 transition-colors">
               <div className="text-muted-foreground">{k}</div>
               <div className="text-foreground text-sm font-display">{v}</div>
             </div>
@@ -849,30 +1146,33 @@ export function Workspace() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-          {chat.map((m, i) => (
-            <div key={i} className={`flex gap-2.5 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
-              <div className={`h-7 w-7 shrink-0 rounded-md flex items-center justify-center ${m.role === "user" ? "bg-secondary" : "bg-primary/15 border border-primary/30"}`}>
-                {m.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
+          {chat.map((m, i) => {
+            const isUser = m.role === "user";
+            return (
+              <div key={i} className={`flex gap-2.5 animate-fade-in-up ${isUser ? "flex-row-reverse" : ""}`}>
+                <div className={`h-7 w-7 shrink-0 rounded-md flex items-center justify-center shadow-sm ${isUser ? "bg-secondary" : "bg-primary/15 border border-primary/30"}`}>
+                  {isUser ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
+                </div>
+                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm shadow-sm ${isUser ? "bg-primary text-primary-foreground" : "bg-background/60 border border-border/60"}`}>
+                  {m.text}
+                </div>
               </div>
-              <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-background/60 border border-border/60"}`}>
-                {m.text}
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
-          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 shadow-sm animate-pulse-glow">
             <div className="font-mono text-[10px] uppercase tracking-widest text-primary mb-2 flex items-center gap-1.5">
               <Layers className="h-3 w-3" /> Suggested next action
             </div>
-            <div className="text-sm mb-2">Run DFT validation on CAT-0241 surface (111) before committing to wet lab.</div>
-            <button className="font-mono text-[10px] uppercase tracking-widest text-primary border border-primary/40 px-2 py-1 rounded hover:bg-primary/10">Queue job</button>
+            <div className="text-sm mb-2 leading-snug">Run DFT validation on CAT-0241 surface (111) before committing to wet lab.</div>
+            <button className="font-mono text-[10px] uppercase tracking-widest text-primary border border-primary/40 px-2 py-1 rounded hover:bg-primary/10 transition-colors">Queue job</button>
           </div>
         </div>
 
         <div className="border-t border-border/60 p-3">
-          <div className="flex flex-wrap gap-1.5 mb-2">
+          <div className="flex flex-wrap gap-1.5 mb-2 overflow-x-auto pb-1 no-scrollbar">
             {["Compare to baseline", "Export protocol", "Find references"].map((q) => (
-              <button key={q} onClick={() => setInput(q)} className="font-mono text-[10px] px-2 py-1 rounded border border-border bg-secondary/60 hover:border-primary/40">{q}</button>
+              <button key={q} onClick={() => setInput(q)} className="font-mono text-[10px] px-2 py-1 rounded border border-border bg-secondary/60 hover:border-primary/40 whitespace-nowrap transition-colors">{q}</button>
             ))}
           </div>
           <div className="flex gap-2">
@@ -881,14 +1181,14 @@ export function Workspace() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
               placeholder="Ask the copilot…"
-              className="flex-1 bg-input border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary/60"
+              className="flex-1 bg-input border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary/60 transition-colors"
             />
-            <button onClick={send} className="h-9 w-9 rounded-md bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90">
+            <button onClick={send} className="h-9 w-9 rounded-md bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-all">
               <Send className="h-4 w-4" />
             </button>
           </div>
           <div className="font-mono text-[9px] text-muted-foreground mt-2 flex items-center gap-1.5">
-            <Activity className="h-3 w-3" /> Grounded in 1,284 retrieved refs · cycle 14 context
+            <Activity className="h-3 w-3" /> Grounded in 1,284 retrieved refs
           </div>
         </div>
       </aside>
