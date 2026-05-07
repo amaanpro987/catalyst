@@ -3,6 +3,9 @@
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "framework": "vite",
+  "env": {
+    "VITE_API_URL": "https://catalyst-m.onrender.com/api"
+  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],

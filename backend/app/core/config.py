@@ -44,7 +44,8 @@ class Settings(BaseSettings):
     #   JSON array:    BACKEND_CORS_ORIGINS='["http://a","http://b"]'
     #   Comma-sep:     BACKEND_CORS_ORIGINS=http://a,http://b
     backend_cors_origins: str = (
-        "http://localhost:3000,http://localhost:5173,http://localhost:8000"
+        "http://localhost:3000,http://localhost:5173,http://localhost:8000,"
+        "https://catalyst-m.vercel.app,https://catalyst-m.onrender.com"
     )
 
     # ── Derived ──────────────────────────────────────────
