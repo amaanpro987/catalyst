@@ -1,6 +1,6 @@
 # ── Web framework ──
-fastapi==0.115.0
-uvicorn[standard]==0.30.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
 
 # ── Database ──
 sqlalchemy==2.0.36
@@ -8,8 +8,9 @@ alembic==1.14.0
 psycopg2-binary==2.9.10
 
 # ── Validation & Config ──
-pydantic==2.8.2
-pydantic-settings==2.3.4
+# pydantic>=2.10 ships pre-built wheels for Python 3.11–3.14 (no Rust compile needed)
+pydantic>=2.10.0
+pydantic-settings>=2.5.0
 python-dotenv==1.0.1
 python-multipart==0.0.9
 
