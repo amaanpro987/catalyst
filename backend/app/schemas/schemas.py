@@ -1,8 +1,11 @@
 """Pydantic schemas for request/response validation"""
 
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
+
+# Shared config that silences Pydantic's 'model_' namespace warning
+_no_ns = ConfigDict(protected_namespaces=())
 
 # ==================== Reaction Schemas ====================
 
@@ -18,6 +21,7 @@ class ReactionCreate(BaseModel):
 
 
 class ReactionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     """Schema for reaction response"""
     id: str
     name: str
@@ -43,6 +47,7 @@ class CatalystCreate(BaseModel):
 
 
 class CatalystResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     """Schema for catalyst response"""
     id: str
     reaction_id: str
@@ -65,6 +70,7 @@ class CatalystListResponse(BaseModel):
 # ==================== Prediction Schemas ====================
 
 class PredictionCreate(BaseModel):
+    model_config = _no_ns
     """Schema for creating a prediction"""
     reaction_id: str
     catalyst_id: str
@@ -77,6 +83,7 @@ class PredictionCreate(BaseModel):
 
 
 class PredictionResponse(BaseModel):
+    model_config = _no_ns
     """Schema for prediction response"""
     id: str
     reaction_id: str
@@ -181,6 +188,7 @@ class VisualizationDataSchema(BaseModel):
 
 
 class DashboardStatsSchema(BaseModel):
+    model_config = _no_ns
     """Schema for dashboard statistics"""
     total_reactions: int
     total_catalysts_known: int
@@ -213,6 +221,7 @@ class ModelRetrainingResponseSchema(BaseModel):
 # ==================== Analysis Schemas ====================
 
 class DiscrepancyAnalysisSchema(BaseModel):
+    model_config = _no_ns
     """Schema for discrepancy analysis results"""
     outlier_experiments: List[ExperimentDiscrepancyResponse]
     avg_deviation: float

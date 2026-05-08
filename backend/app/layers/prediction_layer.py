@@ -70,6 +70,11 @@ class PredictionLayer:
         base_uncertainty = 0.15 if catalyst.get("source") == "known" else 0.25
         uncertainty = base_uncertainty + random.uniform(-0.05, 0.05)
         
+        # Generate scientific insights
+        insights = self._generate_scientific_insights(
+            catalyst, activity, selectivity, stability, uncertainty, reaction_conditions
+        )
+        
         result = {
             "catalyst_id": catalyst.get("id"),
             "catalyst_name": catalyst.get("name"),
@@ -82,6 +87,9 @@ class PredictionLayer:
             "model_version": self.model_version,
             "confidence": self.model_confidence,
             "reaction_conditions": reaction_conditions,
+            "insights": insights["reasons"],
+            "uncertainty_description": insights["uncertainty_reason"],
+            "explanation": insights["summary"],
         }
         
         return result
@@ -164,6 +172,55 @@ class PredictionLayer:
             "inference_time_ms": 50,
         }
     
+    def _generate_scientific_insights(
+        self,
+        catalyst: Dict[str, Any],
+        activity: float,
+        selectivity: float,
+        stability: float,
+        uncertainty: float,
+        conditions: Dict[str, float]
+    ) -> Dict[str, Any]:
+        """Generate human-readable scientific explanations for predictions"""
+        reasons = []
+        comp = catalyst.get("composition", "")
+        source = catalyst.get("source", "unknown")
+        
+        # Activity insights
+        if activity > 80:
+            reasons.append("Optimal binding energy for intermediate stabilization.")
+        elif activity < 40:
+            reasons.append("Sub-optimal coordination environment leads to low turnover.")
+            
+        # Selectivity insights
+        if "Cu" in comp and selectivity > 85:
+            reasons.append("Suppression of methanation pathway via Cu-site isolation.")
+        elif "Pd" in comp and selectivity < 60:
+            reasons.append("Competitive hydrogenation of secondary intermediates.")
+            
+        # Stability insights
+        if "TiO2" in comp or "Al2O3" in comp:
+            reasons.append("Strong metal-support interaction (SMSI) enhances thermal stability.")
+        if stability < 40:
+            reasons.append("Risk of sintering at current temperature thresholds.")
+            
+        # Uncertainty reasons
+        u_reason = "Standard model variance."
+        if source == "generated":
+            u_reason = "Out-of-distribution design (novel candidate)."
+        elif uncertainty > 0.2:
+            u_reason = "Limited training data for this specific elemental combination."
+            
+        # Summary
+        summary = f"Highly promising {source} candidate" if activity > 70 and selectivity > 70 else "Balanced performance profile"
+        if activity > 90: summary = "Exceptional kinetic profile"
+        
+        return {
+            "reasons": reasons[:3],
+            "uncertainty_reason": u_reason,
+            "summary": summary
+        }
+
     def batch_predict(
         self,
         catalysts: List[Dict[str, Any]],

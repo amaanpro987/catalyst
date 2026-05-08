@@ -1,5 +1,7 @@
 """Main FastAPI Application"""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -7,22 +9,34 @@ from app.core.logging import logger
 from app.db.database import init_db
 from app.api import reactions, catalysts, predictions, visualization, experiments
 
-# Initialize database
-init_db()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup / shutdown lifecycle hook."""
+    # ── Startup ──
+    logger.info(f"Starting {settings.api_title} v{settings.api_version}")
+    logger.info(f"Debug mode: {settings.debug}")
+    logger.info(f"CORS origins: {settings.all_cors_origins}")
+    init_db()
+    yield
+    # ── Shutdown ──
+    logger.info(f"Shutting down {settings.api_title}")
+
 
 # Create FastAPI app
 app = FastAPI(
     title=settings.api_title,
     version=settings.api_version,
     description="End-to-End Catalyst and Enzyme Discovery Platform",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.debug else None,   # Hide docs in production
+    redoc_url="/redoc" if settings.debug else None,
+    lifespan=lifespan,
 )
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.backend_cors_origins,
+    allow_origins=settings.all_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -106,20 +120,6 @@ def get_dashboard_stats():
             "next_scheduled_retraining": "2026-05-10T00:00:00Z",
         },
     }
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Run on application startup"""
-    logger.info(f"Starting {settings.api_title} v{settings.api_version}")
-    logger.info(f"Debug mode: {settings.debug}")
-    logger.info(f"CORS origins: {settings.backend_cors_origins}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Run on application shutdown"""
-    logger.info(f"Shutting down {settings.api_title}")
 
 
 if __name__ == "__main__":

@@ -1,20 +1,35 @@
-fastapi==0.115.0
-uvicorn==0.30.0
-python-dotenv==1.0.1
-sqlalchemy==2.1.0
+# ── Web framework ──
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# ── Database ──
+sqlalchemy==2.0.36
 alembic==1.14.0
 psycopg2-binary==2.9.10
-pydantic==2.8.2
-pydantic-settings==2.3.4
-torch==2.4.0
-numpy==1.26.4
-pandas==2.2.2
-scipy==1.14.0
-scikit-learn==1.5.1
+
+# ── Validation & Config ──
+# pydantic>=2.10 ships pre-built wheels for Python 3.11–3.14 (no Rust compile needed)
+pydantic>=2.10.0
+pydantic-settings>=2.5.0
+python-dotenv==1.0.1
+python-multipart==0.0.9
+
+# ── ML / Scientific ──
+# NOTE: Render free tier has 512 MB RAM — torch is large.
+# If you hit memory limits on Render free, comment out torch and
+# replace with a lighter stub in prediction_layer.py.
+torch>=2.6.0
+numpy>=1.26.4
+pandas>=2.2.2
+scipy>=1.14.0
+scikit-learn>=1.5.1
 plotly==5.24.1
 networkx==3.3
-python-multipart==0.0.9
+
+# ── Security ──
 python-jose==3.3.0
 passlib==1.7.4
+
+# ── Utils ──
 pytz==2024.1
 requests==2.32.3

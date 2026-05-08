@@ -1,9 +1,11 @@
 """API Routes - Reactions endpoints"""
 
+import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import ReactionCreate, ReactionResponse
+from app.models.models import Reaction
 from app.core.logging import logger
 
 router = APIRouter(prefix="/api/reactions", tags=["reactions"])
@@ -14,18 +16,6 @@ def create_reaction(reaction: ReactionCreate, db: Session = Depends(get_db)):
     """
     Create a new target reaction query.
     
-    Example request:
-    ```json
-    {
-      "name": "CO2 + H2 to Methanol",
-      "reactants": ["CO2", "H2"],
-      "products": ["CH3OH"],
-      "temperature": 250.0,
-      "pressure": 50.0,
-      "solvent": "water"
-    }
-    ```
-    
     This triggers the full discovery pipeline:
     1. Knowledge Retrieval - fetch known catalysts
     2. Generative Design - create novel variants
@@ -35,26 +25,24 @@ def create_reaction(reaction: ReactionCreate, db: Session = Depends(get_db)):
     logger.info(f"Creating new reaction: {reaction.name}")
     
     try:
-        # In production, save to database
-        # db_reaction = Reaction(**reaction.dict())
-        # db.add(db_reaction)
-        # db.commit()
-        # db.refresh(db_reaction)
+        db_reaction = Reaction(
+            id=str(uuid.uuid4()),
+            name=reaction.name,
+            reactants=reaction.reactants,
+            products=reaction.products,
+            temperature=reaction.temperature,
+            pressure=reaction.pressure,
+            solvent=reaction.solvent,
+            description=reaction.description
+        )
+        db.add(db_reaction)
+        db.commit()
+        db.refresh(db_reaction)
         
-        # For MVP, return mock response
-        return {
-            "id": f"reaction_{reaction.name.replace(' ', '_').lower()}",
-            "name": reaction.name,
-            "reactants": reaction.reactants,
-            "products": reaction.products,
-            "temperature": reaction.temperature,
-            "pressure": reaction.pressure,
-            "solvent": reaction.solvent,
-            "description": reaction.description,
-            "created_at": "2026-05-05T00:00:00",
-        }
+        return db_reaction
     except Exception as e:
         logger.error(f"Error creating reaction: {str(e)}")
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -62,22 +50,22 @@ def create_reaction(reaction: ReactionCreate, db: Session = Depends(get_db)):
 def get_reaction(reaction_id: str, db: Session = Depends(get_db)):
     """Retrieve details of a specific reaction"""
     logger.info(f"Retrieving reaction: {reaction_id}")
-    # Mock implementation
-    return {
-        "id": reaction_id,
-        "name": "Sample Reaction",
-        "reactants": ["A", "B"],
-        "products": ["C"],
-        "temperature": 298.15,
-        "pressure": 1.0,
-        "solvent": "water",
-        "description": None,
-        "created_at": "2026-05-05T00:00:00",
-    }
+    
+    db_reaction = db.query(Reaction).filter(Reaction.id == reaction_id).first()
+    if not db_reaction:
+        raise HTTPException(status_code=404, detail="Reaction not found")
+        
+    return db_reaction
 
 
 @router.get("/")
 def list_reactions(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
     """List all reactions"""
     logger.info(f"Listing reactions (skip={skip}, limit={limit})")
-    return {"reactions": [], "total": 0}
+    
+    query = db.query(Reaction)
+    total = query.count()
+    reactions = query.offset(skip).limit(limit).all()
+    
+    return {"reactions": [ReactionResponse.model_validate(r) for r in reactions], "total": total}
+
